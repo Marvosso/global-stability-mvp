@@ -1,0 +1,11 @@
+{
+  "categories": ["Armed Conflict", "Political Tension", "Military Posture", "Diplomatic Confrontation", "Coercive Economic Action"],
+  "subtypes": {
+    "Armed Conflict": ["Battle", "Targeted Assassination", "Air Strike", "Border Skirmish"],
+    "Political Tension": ["Protest", "Legislation Dispute", "Government Crisis"]
+  },
+  "primary_classifications": ["Verified Event", "Disputed Claim"],
+  "secondary_classifications": ["Official Claim", "Opposition Claim"],
+  "actor_types": ["National Government", "Armed Non-State Group", "International Organization"],
+  "actor_alignments": ["State", "Non-State", "Unknown"]
+}
