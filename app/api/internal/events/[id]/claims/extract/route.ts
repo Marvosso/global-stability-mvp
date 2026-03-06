@@ -6,8 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { uuidSchema, extractClaimsBodySchema } from "../../../../../../_lib/validation";
-import { supabaseAdmin } from "../../../../../../_lib/db";
+import { uuidSchema, extractClaimsBodySchema } from "@/app/api/_lib/validation";
+import { supabaseAdmin } from "@/app/api/_lib/db";
 import { requireReviewer } from "@/lib/rbac";
 import { createRequestLogger } from "@/lib/logger";
 import {
@@ -87,16 +87,17 @@ export async function POST(
     if ((row as { event_id: string }).event_id !== id) {
       return badRequest("Event source does not belong to this event");
     }
-    const r = row as {
+    const r = row as unknown as {
       raw_excerpt?: string | null;
       claim_url?: string | null;
-      sources?: { id: string; name: string | null } | null;
+      sources?: { id: string; name: string | null } | { id: string; name: string | null }[] | null;
     };
+    const src = Array.isArray(r.sources) ? r.sources[0] : r.sources;
     articleText = (r.raw_excerpt ?? "").trim();
     if (!articleText) {
       return badRequest("Event source has no article text (raw_excerpt)");
     }
-    sourceName = r.sources?.name?.trim() ?? "Unknown source";
+    sourceName = src?.name?.trim() ?? "Unknown source";
     evidenceSourceUrl = r.claim_url?.trim() ?? null;
     eventSourceId = data.event_source_id;
   } else {

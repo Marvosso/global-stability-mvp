@@ -47,7 +47,7 @@ export async function recalculateEventConfidence(
 
   if (error || !row) return { updated: false, reason: "not_found" };
 
-  const event = row as EventRow;
+  const event = row as unknown as EventRow;
   if (event.status === "Published") return { updated: false, reason: "published" };
 
   const eventSources = event.event_sources ?? [];

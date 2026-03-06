@@ -67,9 +67,10 @@ export async function POST(
 
   const excerpts: string[] = [];
   for (const row of sourcesData ?? []) {
-    const src = (row as { raw_excerpt?: string | null; sources?: { id: string; name: string | null } | null }).sources;
+    const r = row as unknown as { raw_excerpt?: string | null; sources?: { id: string; name: string | null } | { id: string; name: string | null }[] | null };
+    const src = Array.isArray(r.sources) ? r.sources[0] : r.sources;
     const name = src?.name?.trim() || "A source";
-    const raw = (row as { raw_excerpt?: string | null }).raw_excerpt?.trim();
+    const raw = r.raw_excerpt?.trim();
     if (raw) {
       excerpts.push(`[${name}]: ${raw.slice(0, 500)}`);
     } else {

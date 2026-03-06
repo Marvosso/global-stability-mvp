@@ -429,8 +429,8 @@ export function WorldMap({
           return;
         source.getClusterExpansionZoom(
           clusterId as number,
-          (err: Error | undefined, zoom: number) => {
-            if (err) return;
+          (err, zoom) => {
+            if (err || zoom == null) return;
             const geom = feats[0].geometry;
             if (geom.type !== "Point") return;
             map.easeTo({
@@ -606,7 +606,7 @@ export function WorldMap({
       }
       if (!countries?.features?.length) return;
       const merged = mergeCountriesWithRisk(countries, riskList);
-      source.setData(merged);
+      if (source) source.setData(merged as Parameters<mapboxgl.GeoJSONSource["setData"]>[0]);
     }
 
     loadAndMerge();

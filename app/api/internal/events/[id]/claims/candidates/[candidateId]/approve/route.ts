@@ -6,8 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { uuidSchema, approveClaimCandidateSchema } from "../../../../../../../../_lib/validation";
-import { supabaseAdmin } from "../../../../../../../../_lib/db";
+import { uuidSchema, approveClaimCandidateSchema } from "@/app/api/_lib/validation";
+import { supabaseAdmin } from "@/app/api/_lib/db";
 import { requireReviewer } from "@/lib/rbac";
 import { createRequestLogger } from "@/lib/logger";
 import {
