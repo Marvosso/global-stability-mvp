@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/usgs", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/gdacs", "schedule": "0 * * * *" }
+  ]
+}

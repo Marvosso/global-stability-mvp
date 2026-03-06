@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Environment (secrets)
+.env
+.env.local
+.env.*.local
+memory_package/.env
+memory_package/.env.local
+
+# Build
+*.tsbuildinfo
+
+# IDE
+.cursor/
+
+# Misc
+*.log
+.DS_Store
+New Text Document.txt
