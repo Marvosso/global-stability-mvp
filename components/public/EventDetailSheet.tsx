@@ -11,7 +11,7 @@ import {
 import { ConfidenceBadge } from "@/components/ui/confidence-badge";
 import { ClassificationBadge } from "@/components/ui/classification-badge";
 import { AttributionLine } from "@/components/ui/attribution-line";
-import type { PublicEvent } from "@/lib/eventCoordinates";
+import type { PublicEvent, PublicMapItem } from "@/lib/eventCoordinates";
 
 function formatDate(iso: string): string {
   try {
@@ -63,12 +63,28 @@ type EventContextData = {
   facts: ContextFact[];
 };
 
+type IncidentSummary = {
+  id: string;
+  title: string | null;
+  category: string | null;
+  subtype: string | null;
+  severity: string | null;
+  confidence_level: string | null;
+  primary_location: string | null;
+  country_code: string | null;
+  occurred_at: string | null;
+};
+
 type EventDetailSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   event: PublicEvent | null;
-  eventsWithoutLocation?: PublicEvent[];
+  /** When set, show incident header + source reports. */
+  incident?: IncidentSummary | null;
+  incidentEvents?: PublicEvent[] | null;
+  eventsWithoutLocation?: PublicMapItem[];
   onSelectEvent?: (event: PublicEvent) => void;
+  onSelectMapItem?: (item: PublicMapItem) => void;
   /** When set, show "Escalation" cluster list instead of event detail. */
   escalationCluster?: { region_key: string; event_count: number } | null;
   clusterEvents?: PublicEvent[];
@@ -78,8 +94,11 @@ export function EventDetailSheet({
   open,
   onOpenChange,
   event,
+  incident = null,
+  incidentEvents = [],
   eventsWithoutLocation = [],
   onSelectEvent,
+  onSelectMapItem,
   escalationCluster = null,
   clusterEvents = [],
 }: EventDetailSheetProps) {
@@ -152,10 +171,11 @@ export function EventDetailSheet({
     };
   }, [event?.id, open]);
 
+  const showIncident = !event && incident && (incidentEvents?.length ?? 0) > 0;
   const showNoLocationList =
-    !event && !escalationCluster && eventsWithoutLocation.length > 0 && onSelectEvent;
+    !event && !showIncident && !escalationCluster && eventsWithoutLocation.length > 0 && onSelectMapItem;
   const showEscalationCluster =
-    !event && escalationCluster && clusterEvents.length > 0 && onSelectEvent;
+    !event && !showIncident && escalationCluster && clusterEvents.length > 0 && onSelectEvent;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -164,12 +184,60 @@ export function EventDetailSheet({
           <SheetTitle>
             {event
               ? "Event details"
-              : showEscalationCluster
-                ? `Escalation – ${escalationCluster.region_key}`
-                : "Events without location"}
+              : showIncident
+                ? "Incident"
+                : showEscalationCluster
+                  ? `Escalation – ${escalationCluster.region_key}`
+                  : "Events without location"}
           </SheetTitle>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto pt-4">
+          {showIncident && incident && (
+            <>
+              <Card className="mb-4">
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {incident.title?.trim() || "Untitled"}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {incident.category}
+                    {incident.subtype ? ` · ${incident.subtype}` : ""} · {incident.severity}
+                    {incident.confidence_level ? ` · ${incident.confidence_level}` : ""}
+                  </p>
+                  {(incident.country_code || incident.occurred_at) && (
+                    <p className="text-xs text-muted-foreground">
+                      {[incident.country_code, incident.occurred_at ? formatDate(incident.occurred_at) : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </CardHeader>
+              </Card>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Source reports ({incidentEvents?.length ?? 0})
+              </h4>
+              <ul className="space-y-2">
+                {(incidentEvents ?? []).map((ev) => (
+                  <li key={ev.id}>
+                    <Card
+                      className="cursor-pointer transition-colors hover:bg-muted/50"
+                      onClick={() => onSelectEvent?.(ev)}
+                    >
+                      <CardHeader className="py-3">
+                        <CardTitle className="text-sm">
+                          {ev.title?.trim() || "Untitled"}
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                          {ev.category}
+                          {ev.subtype ? ` · ${ev.subtype}` : ""} · {ev.severity}
+                        </p>
+                      </CardHeader>
+                    </Card>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           {showEscalationCluster && (
             <p className="mb-3 text-sm text-muted-foreground">
               {escalationCluster.event_count} events in this cluster. Click to view details.
@@ -199,19 +267,19 @@ export function EventDetailSheet({
           )}
           {showNoLocationList && (
             <ul className="space-y-2">
-              {eventsWithoutLocation.map((ev) => (
-                <li key={ev.id}>
+              {eventsWithoutLocation.map((item) => (
+                <li key={item.id}>
                   <Card
                     className="cursor-pointer transition-colors hover:bg-muted/50"
-                    onClick={() => onSelectEvent?.(ev)}
+                    onClick={() => onSelectMapItem?.(item)}
                   >
                     <CardHeader className="py-3">
                       <CardTitle className="text-sm">
-                        {ev.title?.trim() || "Untitled"}
+                        {item.title?.trim() || "Untitled"}
                       </CardTitle>
                       <p className="text-xs text-muted-foreground">
-                        {ev.category}
-                        {ev.subtype ? ` · ${ev.subtype}` : ""} · {ev.severity}
+                        {item.category}
+                        {item.subtype ? ` · ${item.subtype}` : ""} · {item.severity}
                       </p>
                     </CardHeader>
                   </Card>

@@ -1,18 +1,20 @@
 "use client";
 
 import { useMemo } from "react";
-import type { PublicEvent } from "@/lib/eventCoordinates";
+import type { PublicEvent, PublicMapItem } from "@/lib/eventCoordinates";
 import { getEventCoordinates } from "@/lib/eventCoordinates";
 import { computeImportance } from "@/lib/scoring/importance";
 
 const MAX_PER_SECTION = 8;
 
+export type SituationEventLike = PublicEvent | PublicMapItem;
+
 type SituationSidebarProps = {
-  events: PublicEvent[];
-  onEventClick: (event: PublicEvent) => void;
+  events: SituationEventLike[];
+  onEventClick: (event: SituationEventLike) => void;
 };
 
-function eventSection(event: PublicEvent): "escalations" | "disasters" | "political" | null {
+function eventSection(event: SituationEventLike): "escalations" | "disasters" | "political" | null {
   if (event.category === "Natural Disaster") return "disasters";
   if (event.severity === "High" || event.severity === "Critical") return "escalations";
   const politicalCategories = [
@@ -22,7 +24,7 @@ function eventSection(event: PublicEvent): "escalations" | "disasters" | "politi
     "Coercive Economic Action",
     "Armed Conflict",
   ];
-  if (politicalCategories.includes(event.category)) return "political";
+  if (event.category && politicalCategories.includes(event.category)) return "political";
   return null;
 }
 
@@ -34,7 +36,7 @@ export function SituationSidebar({ events, onEventClick }: SituationSidebarProps
       event: e,
       importance: computeImportance(
         {
-          severity: e.severity,
+          severity: e.severity ?? "",
           confidence_level: e.confidence_level,
           occurred_at: e.occurred_at,
         },
@@ -63,7 +65,7 @@ export function SituationSidebar({ events, onEventClick }: SituationSidebarProps
     return bySection;
   }, [events]);
 
-  const handleClick = (event: PublicEvent) => {
+  const handleClick = (event: SituationEventLike) => {
     onEventClick(event);
   };
 
@@ -102,8 +104,8 @@ function Section({
   emptyMessage,
 }: {
   title: string;
-  events: PublicEvent[];
-  onEventClick: (event: PublicEvent) => void;
+  events: SituationEventLike[];
+  onEventClick: (event: SituationEventLike) => void;
   emptyMessage: string;
 }) {
   if (events.length === 0) {
@@ -133,7 +135,7 @@ function Section({
                 {ev.title?.trim() || "Untitled"}
               </div>
               <div className="truncate text-[11px] text-muted-foreground">
-                {ev.country_code ?? "—"} · {ev.severity}
+                {ev.country_code ?? "—"} · {ev.severity ?? "—"}
                 {ev.category ? ` · ${ev.category}` : ""}
               </div>
             </button>

@@ -1,8 +1,10 @@
-import type { PublicEvent } from "./eventCoordinates";
+import type { PublicEvent, PublicMapItem } from "./eventCoordinates";
 
 const MS_24H = 24 * 60 * 60 * 1000;
 const MS_7D = 7 * MS_24H;
 const TOP_N = 5;
+
+export type HeatingUpEventLike = PublicEvent | PublicMapItem;
 
 /** Normalize primary_location for grouping; treat empty or "lat,lng" as Unknown. */
 export function normalizeRegion(loc: string | null | undefined): string {
@@ -17,17 +19,18 @@ export function normalizeRegion(loc: string | null | undefined): string {
   return s;
 }
 
-function eventTime(ev: PublicEvent): number {
-  return new Date(ev.created_at).getTime();
+function eventTime(ev: HeatingUpEventLike): number {
+  const raw = ev.occurred_at ?? (ev as PublicEvent).created_at;
+  return new Date(raw ?? 0).getTime();
 }
 
-/** Events with created_at in [startMs, endMs). */
-export function eventsInWindow(
-  events: PublicEvent[],
+/** Events with time in [startMs, endMs). */
+export function eventsInWindow<T extends HeatingUpEventLike>(
+  events: T[],
   startMs: number,
   endMs: number
-): PublicEvent[] {
-  const result: PublicEvent[] = [];
+): T[] {
+  const result: T[] = [];
   for (let i = 0; i < events.length; i++) {
     const t = eventTime(events[i]);
     if (t >= startMs && t < endMs) result.push(events[i]);
@@ -39,7 +42,7 @@ export type TopItem = { label: string; count: number };
 
 /** Top categories by count in the given window (24h or 7d). */
 export function topCategories(
-  events: PublicEvent[],
+  events: HeatingUpEventLike[],
   now: number,
   window: "24h" | "7d"
 ): TopItem[] {
@@ -47,7 +50,8 @@ export function topCategories(
   const inWindow = eventsInWindow(events, start, now);
   const counts = new Map<string, number>();
   for (let i = 0; i < inWindow.length; i++) {
-    const c = inWindow[i].category;
+    const c = inWindow[i].category ?? "";
+    if (!c) continue;
     counts.set(c, (counts.get(c) ?? 0) + 1);
   }
   return Array.from(counts.entries())
@@ -58,7 +62,7 @@ export function topCategories(
 
 /** Top regions by count (over last 7d). */
 export function topRegions(
-  events: PublicEvent[],
+  events: HeatingUpEventLike[],
   now: number,
   window: "24h" | "7d" = "7d"
 ): TopItem[] {
@@ -80,7 +84,7 @@ export type RisingItem = { label: string; delta: number };
 
 /** Categories with more events in last 24h than in previous 24h. */
 export function risingCategories(
-  events: PublicEvent[],
+  events: HeatingUpEventLike[],
   now: number
 ): RisingItem[] {
   const last24 = eventsInWindow(events, now - MS_24H, now);
@@ -88,12 +92,12 @@ export function risingCategories(
   const countLast = new Map<string, number>();
   const countPrev = new Map<string, number>();
   for (let i = 0; i < last24.length; i++) {
-    const c = last24[i].category;
-    countLast.set(c, (countLast.get(c) ?? 0) + 1);
+    const c = last24[i].category ?? "";
+    if (c) countLast.set(c, (countLast.get(c) ?? 0) + 1);
   }
   for (let i = 0; i < prev24.length; i++) {
-    const c = prev24[i].category;
-    countPrev.set(c, (countPrev.get(c) ?? 0) + 1);
+    const c = prev24[i].category ?? "";
+    if (c) countPrev.set(c, (countPrev.get(c) ?? 0) + 1);
   }
   const deltas: RisingItem[] = [];
   countLast.forEach((cnt, label) => {
@@ -105,7 +109,7 @@ export function risingCategories(
 }
 
 /** Regions with more events in last 24h than in previous 24h. */
-export function risingRegions(events: PublicEvent[], now: number): RisingItem[] {
+export function risingRegions(events: HeatingUpEventLike[], now: number): RisingItem[] {
   const last24 = eventsInWindow(events, now - MS_24H, now);
   const prev24 = eventsInWindow(events, now - 2 * MS_24H, now - MS_24H);
   const countLast = new Map<string, number>();

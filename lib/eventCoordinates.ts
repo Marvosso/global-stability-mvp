@@ -32,6 +32,24 @@ export type PublicEvent = {
 };
 
 /**
+ * Map item returned by GET /api/public/events (incident or standalone event).
+ * Used for one-marker-per-incident map; getEventCoordinates and timeline work via primary_location and occurred_at.
+ */
+export type PublicMapItem = {
+  id: string;
+  incident_id: string | null;
+  title: string | null;
+  category: string | null;
+  subtype: string | null;
+  severity: string | null;
+  confidence_level: string | null;
+  primary_location: string | null;
+  occurred_at: string | null;
+  source_count: number;
+  country_code?: string | null;
+};
+
+/**
  * Minimal shape required for map markers. API may return more fields.
  */
 export type MapEventMarkerShape = {
@@ -101,7 +119,7 @@ export function distanceKm(
  * Uses parsePrimaryLocation for primary_location (with range validation).
  */
 export function getEventCoordinates(
-  event: MapEventMarkerShape | PublicEvent
+  event: MapEventMarkerShape | PublicEvent | PublicMapItem
 ): [number, number] | null {
   const parsed = parsePrimaryLocation(event.primary_location);
   if (parsed) return [parsed.lng, parsed.lat];

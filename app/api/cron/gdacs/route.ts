@@ -1,23 +1,12 @@
 /**
  * Vercel Cron: GDACS disaster ingestion.
- * GET /api/cron/gdacs — requires x-cron-key header, runs ingestGDACS().
+ * GET /api/cron/gdacs — requires x-cron-key or Authorization: Bearer, runs ingestGDACS().
  * Returns { fetched, processed, skipped }.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { verifyCronKey } from "@/lib/cronAuth";
 import { ingestGDACS } from "@/lib/ingest/gdacs";
-
-function verifyCronKey(request: NextRequest): { ok: true } | { ok: false; status: 401; body: object } {
-  const key = (process.env.CRON_KEY ?? "").trim();
-  if (!key) {
-    return { ok: false, status: 401, body: { error: "CRON_KEY not configured" } };
-  }
-  const header = request.headers.get("x-cron-key");
-  if (header !== key) {
-    return { ok: false, status: 401, body: { error: "Unauthorized" } };
-  }
-  return { ok: true };
-}
 
 export async function GET(request: NextRequest) {
   const auth = verifyCronKey(request);
@@ -34,9 +23,10 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    const isConfigError = /GDACS_RSS_URL.*required/i.test(message);
     return NextResponse.json(
       { error: "GDACS ingest failed", message },
-      { status: 500 }
+      { status: isConfigError ? 503 : 500 }
     );
   }
 }

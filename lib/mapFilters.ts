@@ -1,5 +1,7 @@
-import type { PublicEvent } from "./eventCoordinates";
+import type { PublicEvent, PublicMapItem } from "./eventCoordinates";
 import { getSeverityLevel } from "./mapMarkerStyle";
+
+export type MapFilterableItem = PublicEvent | PublicMapItem;
 
 export type TimeWindow = "24h" | "72h" | "7d" | null;
 
@@ -24,18 +26,20 @@ function effectiveMax(max: number): number {
   return max >= 4 ? 4 : max;
 }
 
-export function applyMapFilters(
-  events: PublicEvent[],
+export function applyMapFilters<T extends MapFilterableItem>(
+  events: T[],
   filters: MapFiltersState
-): PublicEvent[] {
+): T[] {
   return events.filter((event) => {
+    const category = event.category ?? "";
     if (
       filters.categories.length > 0 &&
-      !filters.categories.includes(event.category)
+      !filters.categories.includes(category)
     ) {
       return false;
     }
-    const level = getSeverityLevel(event.severity);
+    const severity = event.severity ?? "";
+    const level = getSeverityLevel(severity);
     const max = effectiveMax(filters.severityMax);
     if (level < filters.severityMin || level > max) return false;
     if (
@@ -46,7 +50,8 @@ export function applyMapFilters(
       return false;
     }
     if (filters.timeWindow) {
-      const ts = new Date(event.occurred_at ?? event.created_at).getTime();
+      const createdAt = (event as PublicEvent).created_at;
+      const ts = new Date(event.occurred_at ?? createdAt ?? 0).getTime();
       const now = Date.now();
       const ms =
         filters.timeWindow === "24h"

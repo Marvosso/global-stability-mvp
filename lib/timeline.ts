@@ -1,4 +1,6 @@
-import type { PublicEvent } from "./eventCoordinates";
+import type { PublicEvent, PublicMapItem } from "./eventCoordinates";
+
+export type TimelineEventLike = PublicEvent | PublicMapItem;
 
 export type TimelineWindow = "24h" | "72h" | "7d" | "30d";
 
@@ -30,8 +32,8 @@ export function getTimelineWindowMs(window: TimelineWindow): number {
 /**
  * Get event time in ms (occurred_at or created_at fallback).
  */
-function getEventTime(event: PublicEvent): number {
-  const raw = event.occurred_at ?? event.created_at;
+function getEventTime(event: TimelineEventLike): number {
+  const raw = event.occurred_at ?? (event as PublicEvent).created_at;
   if (!raw) return 0;
   const t = new Date(raw).getTime();
   return Number.isFinite(t) ? t : 0;
@@ -41,11 +43,11 @@ function getEventTime(event: PublicEvent): number {
  * Filter events to those within the timeline window and before the playhead.
  * position 0 = window start (no events), position 1 = now (all events in window).
  */
-export function filterEventsByTimeline(
-  events: PublicEvent[],
+export function filterEventsByTimeline<T extends TimelineEventLike>(
+  events: T[],
   window: TimelineWindow,
   position: number
-): PublicEvent[] {
+): T[] {
   const now = Date.now();
   const windowMs = getTimelineWindowMs(window);
   const windowStart = now - windowMs;

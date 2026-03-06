@@ -41,6 +41,7 @@ export const createDraftEventSchema = z.object({
   primary_location: z.string().optional(),
   requires_dual_review: z.boolean().optional(),
   source_url: z.string().url().optional(),
+  source_name: z.string().max(200).optional(),
   actors: z
     .array(
       z.object({

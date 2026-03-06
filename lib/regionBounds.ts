@@ -1,5 +1,5 @@
 import { getEventCoordinates } from "./eventCoordinates";
-import type { PublicEvent } from "./eventCoordinates";
+import type { PublicEvent, PublicMapItem } from "./eventCoordinates";
 import type { EscalationMapItem } from "@/components/public/WorldMap";
 
 /** Mapbox fitBounds: [[west, south], [east, north]] */
@@ -8,12 +8,12 @@ export type Bounds = [[number, number], [number, number]];
 const PADDING = 0.5;
 
 /**
- * Returns bounds from events and escalations, or from a grid region string (grid_lat_lng).
+ * Returns bounds from events/map items and escalations, or from a grid region string (grid_lat_lng).
  * Use for map initialBounds.
  */
 export function getBoundsForRegion(
   region: string,
-  events: PublicEvent[],
+  events: (PublicEvent | PublicMapItem)[],
   escalations: EscalationMapItem[]
 ): Bounds | undefined {
   const points: [number, number][] = [];

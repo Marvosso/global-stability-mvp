@@ -7,7 +7,9 @@ export type WorkflowAuditAction =
   | "draft_created"
   | "approved"
   | "rejected"
-  | "confidence_updated";
+  | "confidence_updated"
+  | "auto_published"
+  | "backfill_auto_publish";
 
 export type EventStatus = "Draft" | "UnderReview" | "Published" | "Rejected";
 
@@ -114,6 +116,38 @@ export function logRejection(
     details: {
       previous_status: params.previousStatus,
     },
+  });
+}
+
+/**
+ * Log workflow audit: event auto-published by ingestion rule (USGS, GDACS, FIRMS).
+ */
+export function logAutoPublished(
+  client: SupabaseClient,
+  params: { eventId: string; rule: string }
+): ReturnType<ReturnType<SupabaseClient["from"]>["insert"]> {
+  return insertAudit(client, {
+    event_id: params.eventId,
+    action: "auto_published",
+    actor_id: null,
+    actor_role: "ingestion",
+    details: { rule: params.rule },
+  });
+}
+
+/**
+ * Log workflow audit: event auto-published by backfill script (trusted structured feeds).
+ */
+export function logBackfillAutoPublish(
+  client: SupabaseClient,
+  params: { eventId: string }
+): ReturnType<ReturnType<SupabaseClient["from"]>["insert"]> {
+  return insertAudit(client, {
+    event_id: params.eventId,
+    action: "backfill_auto_publish",
+    actor_id: null,
+    actor_role: "backfill_script",
+    details: { reason: "backfill auto-publish trusted structured feed" },
   });
 }
 

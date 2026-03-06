@@ -2,9 +2,12 @@ import type { CreateDraftEventData } from "./validation";
 import { supabaseAdmin } from "./db";
 import { getOrCreateSourceByDomain } from "./getOrCreateSourceByDomain";
 import { recalculateEventConfidence } from "./recalculateEventConfidence";
+import { createAlertsForPublishedEvent } from "./createAlertsForPublishedEvent";
+import { logAutoPublished } from "@/lib/audit";
 import { normalizeDomainFromUrl } from "@/lib/domain";
 import { statusFromSupabaseError } from "@/lib/apiError";
 import { parsePrimaryLocation, distanceKm } from "@/lib/eventCoordinates";
+import { matchIncident, type CandidateIncident } from "@/lib/incidents/matchIncident";
 import { reverseGeocode } from "@/lib/geocode/reverseGeocode";
 
 export type CreateDraftEventParams = {
@@ -239,8 +242,110 @@ async function findDuplicateEvent(data: CreateDraftEventData): Promise<{ id: str
   return null;
 }
 
+type FindOrCreateIncidentResult =
+  | { incidentId: string; matchScore?: number; suggestedIncidentId?: null }
+  | { incidentId: null; suggestedIncidentId: string; matchScore: number };
+
 /**
- * Insert draft event (status UnderReview), optional event_actors/event_sources,
+ * Find or create an incident for event clustering using weighted similarity scoring.
+ * >= 0.75: auto-attach; 0.50–0.74: flag (suggested_incident_id); < 0.50: create new.
+ * Returns null if event has no coords/occurred_at.
+ */
+async function findOrCreateIncident(
+  data: CreateDraftEventData,
+  countryCode: string | null
+): Promise<FindOrCreateIncidentResult | null> {
+  const coords = parsePrimaryLocation(data.primary_location);
+  const occurredAt =
+    data.occurred_at && !Number.isNaN(new Date(data.occurred_at).getTime())
+      ? data.occurred_at
+      : null;
+  if (!coords || !occurredAt) return null;
+
+  const { data: candidates, error: rpcErr } = await supabaseAdmin.rpc(
+    "get_incident_candidates",
+    {
+      p_category: data.category,
+      p_occurred_at: occurredAt,
+      p_lng: coords.lng,
+      p_lat: coords.lat,
+      p_limit: 20,
+    }
+  );
+
+  if (!rpcErr && candidates?.length) {
+    const result = matchIncident(
+      {
+        title: data.title,
+        category: data.category,
+        subtype: data.subtype,
+        primary_location: data.primary_location,
+        occurred_at: data.occurred_at,
+      },
+      (candidates as Array<{ id: string; title: string | null; category: string | null; subtype: string | null; primary_location: string | null; occurred_at: string | null; event_count: number }>).map(
+        (c): CandidateIncident => ({
+          id: c.id,
+          title: c.title,
+          category: c.category,
+          subtype: c.subtype,
+          primary_location: c.primary_location,
+          occurred_at: c.occurred_at,
+          event_count: Number(c.event_count ?? 0),
+        })
+      )
+    );
+
+    if (result.incidentId && result.matchScore >= 0.75) {
+      return { incidentId: result.incidentId, matchScore: result.matchScore };
+    }
+    if (result.matchScore >= 0.5 && result.suggestedIncidentId) {
+      return {
+        incidentId: null,
+        suggestedIncidentId: result.suggestedIncidentId,
+        matchScore: result.matchScore,
+      };
+    }
+  }
+
+  const { data: newIncident, error: insertErr } = await supabaseAdmin
+    .from("incidents")
+    .insert({
+      title: data.title,
+      category: data.category,
+      subtype: data.subtype ?? null,
+      primary_location: `POINT(${coords.lng} ${coords.lat})`,
+      country_code: countryCode,
+      occurred_at: occurredAt,
+      severity: data.severity,
+      confidence_level: data.confidence_level,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr) {
+    console.error("[createDraftEvent] incident insert failed", insertErr);
+    return null;
+  }
+  return { incidentId: newIncident?.id ?? null };
+}
+
+/**
+ * Auto-publish rules for trusted feeds: USGS, GDACS, FIRMS with High confidence.
+ * Returns the matched rule name or null if no rule matches.
+ */
+function getAutoPublishRule(data: CreateDraftEventData): "usgs" | "gdacs" | "firms" | null {
+  if (data.confidence_level !== "High") return null;
+
+  const domain = data.source_url ? normalizeDomainFromUrl(data.source_url) : null;
+  if (domain?.includes("usgs.gov")) return "usgs";
+  if (domain?.includes("gdacs.org")) return "gdacs";
+  if (data.source_name?.toLowerCase().includes("firms")) return "firms";
+
+  return null;
+}
+
+/**
+ * Insert draft event (status UnderReview or Published per auto-publish rules),
  * and optional source_candidate from source_url. Caller must have already
  * validated body with createDraftEventSchema.
  */
@@ -310,6 +415,11 @@ export async function createDraftEventAndMaybeCandidate(
     }
   }
 
+  const incidentResult = await findOrCreateIncident(data, country_code);
+
+  const autoPublishRule = getAutoPublishRule(data);
+  const status = autoPublishRule ? ("Published" as const) : ("UnderReview" as const);
+
   const eventRow = {
     title: data.title,
     summary: data.summary,
@@ -321,7 +431,7 @@ export async function createDraftEventAndMaybeCandidate(
     severity: data.severity,
     confidence_level: data.confidence_level,
     confidence_score: data.confidence_score ?? null,
-    status: "UnderReview" as const,
+    status,
     created_by: createdBy,
     requires_dual_review: data.requires_dual_review ?? false,
     occurred_at: data.occurred_at ?? null,
@@ -329,6 +439,11 @@ export async function createDraftEventAndMaybeCandidate(
     primary_location: data.primary_location ?? null,
     country_code,
     admin1,
+    incident_id: incidentResult?.incidentId ?? null,
+    ...(incidentResult?.matchScore != null && { match_score: incidentResult.matchScore }),
+    ...(incidentResult && "suggestedIncidentId" in incidentResult && incidentResult.suggestedIncidentId && {
+      suggested_incident_id: incidentResult.suggestedIncidentId,
+    }),
   };
 
   const { data: event, error: insertError } = await supabaseAdmin
@@ -375,6 +490,19 @@ export async function createDraftEventAndMaybeCandidate(
   await linkSourceUrlToEvent(event.id, data);
 
   await recalculateEventConfidence(event.id);
+
+  if (event.status === "Published" && autoPublishRule) {
+    try {
+      await createAlertsForPublishedEvent(event.id);
+    } catch {
+      // Do not block on alert creation failure
+    }
+    try {
+      await logAutoPublished(supabaseAdmin, { eventId: event.id, rule: autoPublishRule });
+    } catch {
+      // Do not block on audit failure
+    }
+  }
 
   return { event };
 }

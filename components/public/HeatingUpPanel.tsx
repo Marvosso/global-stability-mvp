@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { PublicEvent } from "@/lib/eventCoordinates";
+import type { HeatingUpEventLike } from "@/lib/heatingUpSummaries";
 import {
   topCategories,
   topRegions,
@@ -11,7 +11,7 @@ import {
 } from "@/lib/heatingUpSummaries";
 
 type HeatingUpPanelProps = {
-  events: PublicEvent[];
+  events: HeatingUpEventLike[];
 };
 
 function Section({

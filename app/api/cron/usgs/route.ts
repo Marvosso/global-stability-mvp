@@ -1,23 +1,12 @@
 /**
  * Vercel Cron: USGS earthquake ingestion.
- * GET /api/cron/usgs — requires x-cron-key header, runs ingestUSGS().
+ * GET /api/cron/usgs — requires x-cron-key or Authorization: Bearer, runs ingestUSGS().
  * Returns { fetched, processed, skipped }.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { verifyCronKey } from "@/lib/cronAuth";
 import { ingestUSGS } from "@/lib/ingest/usgs";
-
-function verifyCronKey(request: NextRequest): { ok: true } | { ok: false; status: 401; body: object } {
-  const key = (process.env.CRON_KEY ?? "").trim();
-  if (!key) {
-    return { ok: false, status: 401, body: { error: "CRON_KEY not configured" } };
-  }
-  const header = request.headers.get("x-cron-key");
-  if (header !== key) {
-    return { ok: false, status: 401, body: { error: "Unauthorized" } };
-  }
-  return { ok: true };
-}
 
 export async function GET(request: NextRequest) {
   const auth = verifyCronKey(request);

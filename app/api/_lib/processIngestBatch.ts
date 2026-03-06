@@ -14,6 +14,7 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   const key = (item.feed_key ?? item.source_name ?? "").toLowerCase();
   const isUSGS = key.includes("usgs");
   const isGDACS = key.includes("gdacs");
+  const isFIRMS = key.includes("firms");
 
   const summary = (item.summary ?? item.title).trim().slice(0, 5000) || item.title;
 
@@ -28,9 +29,10 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
     summary,
     category: item.category ?? DEFAULT_CATEGORY,
     severity: (isUSGS ? "Low" : isGDACS ? "Medium" : DEFAULT_SEVERITY) as CreateDraftEventData["severity"],
-    confidence_level: (isUSGS || isGDACS ? "High" : DEFAULT_CONFIDENCE) as CreateDraftEventData["confidence_level"],
+    confidence_level: (isUSGS || isGDACS || isFIRMS ? "High" : DEFAULT_CONFIDENCE) as CreateDraftEventData["confidence_level"],
     primary_classification: DEFAULT_CLASSIFICATION,
     source_url: item.source_url,
+    source_name: item.source_name,
     occurred_at: occurredAt,
     ...(item.location?.trim() && { primary_location: item.location.trim().slice(0, 500) }),
   };
@@ -57,6 +59,14 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
       ...base,
       category: item.category ?? "Natural Disaster",
       subtype,
+    };
+  }
+
+  if (isFIRMS) {
+    return {
+      ...base,
+      category: item.category ?? "Natural Disaster",
+      subtype: item.subtype ?? "Wildfire",
     };
   }
 

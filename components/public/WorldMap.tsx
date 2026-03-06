@@ -6,6 +6,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import {
   getEventCoordinates,
   type PublicEvent,
+  type PublicMapItem,
 } from "@/lib/eventCoordinates";
 import {
   getSeverityLevel,
@@ -61,9 +62,13 @@ export type EscalationMapItem = {
   centroid_lat: number | null;
 };
 
+/** Event or map item (incident/standalone) for map markers. */
+export type MapMarkerItem = PublicEvent | PublicMapItem;
+
 type WorldMapProps = {
   accessToken: string;
-  events: PublicEvent[];
+  /** Map items (incidents + standalone events) or full events for markers. */
+  events: MapMarkerItem[];
   escalations?: EscalationMapItem[];
   /** Optional stability scores per country for future choropleth layer */
   heatmap?: Array<{ country_code: string; stability_score: number; delta_24h: number | null }>;
@@ -73,7 +78,7 @@ type WorldMapProps = {
   escalationRisk?: Array<{ region_code: string; risk_score: number; risk_level: string }> | null;
   /** When true, show the escalation risk fill layer (country shading by risk_level). */
   showEscalationRiskLayer?: boolean;
-  onMarkerClick: (event: PublicEvent) => void;
+  onMarkerClick: (item: MapMarkerItem) => void;
   onEscalationClick?: (escalation: EscalationMapItem) => void;
   /** Optional bounds [[swLng, swLat], [neLng, neLat]] to fit map on load */
   initialBounds?: [[number, number], [number, number]];
@@ -84,7 +89,7 @@ type WorldMapProps = {
 };
 
 function buildEventsGeoJSON(
-  events: PublicEvent[]
+  events: MapMarkerItem[]
 ): {
   type: "FeatureCollection";
   features: Array<{
@@ -97,14 +102,14 @@ function buildEventsGeoJSON(
     .map((event) => {
       const coords = getEventCoordinates(event);
       if (!coords) return null;
-      const level = getSeverityLevel(event.severity);
+      const level = getSeverityLevel(event.severity ?? "");
       return {
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: coords },
         properties: {
           eventId: event.id,
           radius: getRadiusForLevel(level),
-          confidenceOpacity: getConfidenceOpacity(event.confidence_level),
+          confidenceOpacity: getConfidenceOpacity(event.confidence_level ?? undefined),
         },
       };
     })
@@ -196,7 +201,7 @@ function mergeCountriesWithRisk(
 type RingFeatureProperties = { eventId: string; radius: number; opacity: number };
 
 function buildEscalationRingsGeoJSON(
-  events: PublicEvent[],
+  events: MapMarkerItem[],
   startTimes: Map<string, number>,
   now: number
 ): {
@@ -259,7 +264,7 @@ export function WorldMap({
 }: WorldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const eventsRef = useRef<PublicEvent[]>(events);
+  const eventsRef = useRef<MapMarkerItem[]>(events);
   const escalationsRef = useRef<EscalationMapItem[]>(escalations);
   const crisisHeatmapRef = useRef<CrisisHeatmapPoint[] | undefined>(crisisHeatmap);
   const countriesGeoJSONRef = useRef<{ type: "FeatureCollection"; features: GeoJSONFeature[] } | null>(null);

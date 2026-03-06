@@ -20,6 +20,7 @@
     "ingest:acled": "tsx scripts/ingest_acled.ts",
     "ingest:all": "tsx scripts/run_ingest_all.ts",
     "backfill:country-codes": "tsx scripts/backfill_country_codes.ts",
+    "backfill:publish-trusted": "tsx scripts/backfill_publish_trusted.ts",
     "score:daily": "tsx scripts/compute_region_scores.ts",
     "brief:weekly": "tsx scripts/generate_weekly_brief.ts",
     "detect:escalation": "tsx scripts/detect_escalation_signals.ts",

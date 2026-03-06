@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { WorldMap, type EscalationMapItem } from "@/components/public/WorldMap";
+import { WorldMap, type EscalationMapItem, type MapMarkerItem } from "@/components/public/WorldMap";
 import { EventDetailSheet } from "@/components/public/EventDetailSheet";
-import { getEventCoordinates, type PublicEvent } from "@/lib/eventCoordinates";
+import { getEventCoordinates, type PublicEvent, type PublicMapItem } from "@/lib/eventCoordinates";
 import { getBoundsForRegion } from "@/lib/regionBounds";
 
 const WorldMapDynamic = dynamic(
@@ -52,7 +52,7 @@ export default function RegionIntelligencePage() {
   const region = typeof params?.region === "string" ? params.region : "";
   const accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
-  const [events, setEvents] = useState<PublicEvent[]>([]);
+  const [mapItems, setMapItems] = useState<PublicMapItem[]>([]);
   const [escalations, setEscalations] = useState<EscalationMapItem[]>([]);
   const [briefings, setBriefings] = useState<BriefingItem[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
@@ -60,8 +60,11 @@ export default function RegionIntelligencePage() {
   const [loadingBriefings, setLoadingBriefings] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<PublicEvent | null>(null);
+  type IncidentPayload = { id: string; title: string | null; category: string | null; subtype: string | null; severity: string | null; confidence_level: string | null; primary_location: string | null; country_code: string | null; occurred_at: string | null };
+  const [selectedIncident, setSelectedIncident] = useState<{ incident: IncidentPayload; events: PublicEvent[] } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedEscalation, setSelectedEscalation] = useState<EscalationMapItem | null>(null);
+  const [escalationClusterEvents, setEscalationClusterEvents] = useState<PublicEvent[]>([]);
 
   useEffect(() => {
     if (!region) return;
@@ -72,7 +75,7 @@ export default function RegionIntelligencePage() {
         if (!res.ok) throw new Error("Failed to load events");
         return res.json();
       })
-      .then((data) => setEvents(Array.isArray(data) ? data : []))
+      .then((data) => setMapItems(Array.isArray(data) ? data : []))
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load events"))
       .finally(() => setLoadingEvents(false));
   }, [region]);
@@ -104,32 +107,83 @@ export default function RegionIntelligencePage() {
   }, [region]);
 
   const initialBounds = useMemo(
-    () => getBoundsForRegion(region, events, escalations),
-    [region, events, escalations]
+    () => getBoundsForRegion(region, mapItems, escalations),
+    [region, mapItems, escalations]
   );
 
-  const eventsWithCoords = useMemo(
-    () => events.filter((e) => getEventCoordinates(e) != null),
-    [events]
+  const mapItemsWithCoords = useMemo(
+    () => mapItems.filter((e) => getEventCoordinates(e) != null),
+    [mapItems]
   );
 
-  const handleMarkerClick = useCallback((event: PublicEvent) => {
-    setSelectedEvent(event);
+  const fetchAndShowMapItem = useCallback((item: PublicMapItem) => {
+    setDrawerOpen(true);
+    if (item.incident_id != null) {
+      fetch(`/api/public/incidents/${item.id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { incident: unknown; events: PublicEvent[] } | null) => {
+          if (data?.incident && Array.isArray(data.events)) {
+            setSelectedIncident({ incident: data.incident as IncidentPayload, events: data.events });
+            setSelectedEvent(null);
+          }
+        });
+    } else {
+      fetch(`/api/public/events/${item.id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: PublicEvent | null) => {
+          if (data) {
+            setSelectedEvent(data);
+            setSelectedIncident(null);
+          }
+        });
+    }
     setSelectedEscalation(null);
+  }, []);
+
+  const handleMarkerClick = useCallback((item: MapMarkerItem) => {
+    if ("summary" in item && item.summary !== undefined) {
+      setSelectedEvent(item as PublicEvent);
+      setSelectedIncident(null);
+    } else {
+      fetchAndShowMapItem(item as PublicMapItem);
+    }
+    setSelectedEscalation(null);
+    setDrawerOpen(true);
+  }, [fetchAndShowMapItem]);
+
+  const handleSelectEventFromList = useCallback((event: PublicEvent) => {
+    setSelectedEvent(event);
+    setSelectedIncident(null);
     setDrawerOpen(true);
   }, []);
 
   const handleEscalationClick = useCallback((escalation: EscalationMapItem) => {
     setSelectedEscalation(escalation);
     setSelectedEvent(null);
+    setSelectedIncident(null);
     setDrawerOpen(true);
   }, []);
 
-  const clusterEvents = useMemo(() => {
-    if (!selectedEscalation?.event_ids?.length) return [];
-    const idSet = new Set(selectedEscalation.event_ids);
-    return events.filter((e) => idSet.has(e.id));
-  }, [selectedEscalation, events]);
+  useEffect(() => {
+    if (!selectedEscalation?.event_ids?.length) {
+      setEscalationClusterEvents([]);
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      selectedEscalation.event_ids.map((id) =>
+        fetch(`/api/public/events/${id}`).then((r) => (r.ok ? r.json() : null))
+      )
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setEscalationClusterEvents(results.filter((e): e is PublicEvent => e != null));
+      })
+      .catch(() => {
+        if (!cancelled) setEscalationClusterEvents([]);
+      });
+    return () => { cancelled = true; };
+  }, [selectedEscalation?.event_ids]);
 
   const loading = loadingEvents || loadingEscalations || loadingBriefings;
 
@@ -168,7 +222,7 @@ export default function RegionIntelligencePage() {
         {accessToken ? (
           <WorldMapDynamic
             accessToken={accessToken}
-            events={eventsWithCoords}
+            events={mapItemsWithCoords}
             escalations={escalations}
             onMarkerClick={handleMarkerClick}
             onEscalationClick={handleEscalationClick}
@@ -194,24 +248,24 @@ export default function RegionIntelligencePage() {
             </h2>
             {loadingEvents ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
-            ) : events.length === 0 ? (
+            ) : mapItems.length === 0 ? (
               <p className="text-sm text-muted-foreground">No events in this region.</p>
             ) : (
               <ul className="space-y-2">
-                {events.slice(0, 10).map((ev) => (
-                  <li key={ev.id}>
+                {mapItems.slice(0, 10).map((item) => (
+                  <li key={item.id}>
                     <button
                       type="button"
                       className="w-full rounded-md border border-border bg-card px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
-                      onClick={() => handleMarkerClick(ev)}
+                      onClick={() => fetchAndShowMapItem(item)}
                     >
-                      <span className="font-medium">{ev.title?.trim() || "Untitled"}</span>
+                      <span className="font-medium">{item.title?.trim() || "Untitled"}</span>
                       <span className="ml-1 text-muted-foreground">
-                        · {ev.category} · {ev.severity}
+                        · {item.category} · {item.severity}
                       </span>
                       <br />
                       <span className="text-xs text-muted-foreground">
-                        {ev.primary_location ?? "No location"} · {formatDate(ev.created_at)}
+                        {item.primary_location ?? "No location"} · {item.occurred_at ? formatDate(item.occurred_at) : "—"}
                       </span>
                     </button>
                   </li>
@@ -285,8 +339,16 @@ export default function RegionIntelligencePage() {
 
       <EventDetailSheet
         open={drawerOpen}
-        onOpenChange={setDrawerOpen}
+        onOpenChange={(open) => {
+          setDrawerOpen(open);
+          if (!open) {
+            setSelectedEvent(null);
+            setSelectedIncident(null);
+          }
+        }}
         event={selectedEvent}
+        incident={selectedIncident?.incident ?? null}
+        incidentEvents={selectedIncident?.events ?? null}
         escalationCluster={
           selectedEscalation
             ? {
@@ -295,8 +357,8 @@ export default function RegionIntelligencePage() {
               }
             : null
         }
-        clusterEvents={clusterEvents}
-        onSelectEvent={handleMarkerClick}
+        clusterEvents={escalationClusterEvents}
+        onSelectEvent={handleSelectEventFromList}
       />
     </div>
   );

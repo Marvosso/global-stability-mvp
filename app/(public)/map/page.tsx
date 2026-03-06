@@ -16,6 +16,7 @@ import { AlertsBell } from "@/components/alerts/AlertsBell";
 import {
   getEventCoordinates,
   type PublicEvent,
+  type PublicMapItem,
 } from "@/lib/eventCoordinates";
 import { useSession } from "@/components/auth/SessionProvider";
 import {
@@ -31,7 +32,7 @@ import type {
   HeatingUpCountry,
   HeatingUpEventDriver,
 } from "@/app/api/public/summary/heating-up/route";
-import type { EscalationMapItem, CrisisHeatmapPoint } from "@/components/public/WorldMap";
+import type { EscalationMapItem, CrisisHeatmapPoint, MapMarkerItem } from "@/components/public/WorldMap";
 
 const WorldMap = dynamic(
   () =>
@@ -42,13 +43,17 @@ const WorldMap = dynamic(
 function MapPageContent() {
   const searchParams = useSearchParams();
   const eventIdFromUrl = searchParams.get("eventId");
+  const incidentIdFromUrl = searchParams.get("incidentId");
   const accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
   const { user } = useSession();
-  const [events, setEvents] = useState<PublicEvent[]>([]);
+  const [mapItems, setMapItems] = useState<PublicMapItem[]>([]);
   const [filters, setFilters] = useState<MapFiltersState>(DEFAULT_MAP_FILTERS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<PublicEvent | null>(null);
+  type SelectedIncidentPayload = { incident: { id: string; title: string | null; category: string | null; subtype: string | null; severity: string | null; confidence_level: string | null; primary_location: string | null; country_code: string | null; occurred_at: string | null }; events: PublicEvent[] };
+  const [selectedIncident, setSelectedIncident] = useState<SelectedIncidentPayload | null>(null);
+  const [escalationClusterEvents, setEscalationClusterEvents] = useState<PublicEvent[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showNoLocationList, setShowNoLocationList] = useState(false);
   const [heatingUpCountries, setHeatingUpCountries] = useState<HeatingUpCountry[]>([]);
@@ -76,7 +81,7 @@ function MapPageContent() {
       })
       .then((data) => {
         if (cancelled) return;
-        setEvents(Array.isArray(data) ? data : []);
+        setMapItems(Array.isArray(data) ? data : []);
       })
       .catch((err) => {
         if (!cancelled)
@@ -186,12 +191,21 @@ function MapPageContent() {
 
   useEffect(() => {
     if (!eventIdFromUrl || loading) return;
-    const fromList = events.find((e) => e.id === eventIdFromUrl);
+    const fromList = mapItems.find((m) => m.id === eventIdFromUrl && m.incident_id == null);
     if (fromList) {
-      setSelectedEvent(fromList);
-      setShowNoLocationList(false);
-      setDrawerOpen(true);
-      return;
+      let cancelled = false;
+      fetch(`/api/public/events/${eventIdFromUrl}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: PublicEvent | null) => {
+          if (cancelled) return;
+          if (data) {
+            setSelectedEvent(data);
+            setSelectedIncident(null);
+            setShowNoLocationList(false);
+            setDrawerOpen(true);
+          }
+        });
+      return () => { cancelled = true; };
     }
     let cancelled = false;
     fetch(`/api/public/events/${eventIdFromUrl}`)
@@ -201,10 +215,8 @@ function MapPageContent() {
       })
       .then((data: PublicEvent) => {
         if (cancelled) return;
-        setEvents((prev) =>
-          prev.some((e) => e.id === data.id) ? prev : [...prev, data]
-        );
         setSelectedEvent(data);
+        setSelectedIncident(null);
         setShowNoLocationList(false);
         setDrawerOpen(true);
       })
@@ -214,35 +226,95 @@ function MapPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [eventIdFromUrl, loading, events]);
+  }, [eventIdFromUrl, loading, mapItems]);
 
-  const filteredEvents = useMemo(() => {
-    let list = applyMapFilters(events, filters);
+  useEffect(() => {
+    if (!incidentIdFromUrl || loading) return;
+    const fromList = mapItems.find((m) => m.id === incidentIdFromUrl && m.incident_id != null);
+    if (fromList) {
+      let cancelled = false;
+      fetch(`/api/public/incidents/${incidentIdFromUrl}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { incident: unknown; events: PublicEvent[] } | null) => {
+          if (cancelled) return;
+          if (data?.incident && Array.isArray(data.events)) {
+            setSelectedIncident({ incident: data.incident as SelectedIncidentPayload["incident"], events: data.events });
+            setSelectedEvent(null);
+            setShowNoLocationList(false);
+            setDrawerOpen(true);
+          }
+        });
+      return () => { cancelled = true; };
+    }
+    let cancelled = false;
+    fetch(`/api/public/incidents/${incidentIdFromUrl}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Not found");
+        return res.json();
+      })
+      .then((data: { incident: unknown; events: PublicEvent[] }) => {
+        if (cancelled) return;
+        setSelectedIncident({ incident: data.incident as SelectedIncidentPayload["incident"], events: data.events ?? [] });
+        setSelectedEvent(null);
+        setShowNoLocationList(false);
+        setDrawerOpen(true);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Incident not found");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [incidentIdFromUrl, loading, mapItems]);
+
+  useEffect(() => {
+    if (!selectedEscalation?.event_ids?.length) {
+      setEscalationClusterEvents([]);
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      selectedEscalation.event_ids.map((id) =>
+        fetch(`/api/public/events/${id}`).then((r) => (r.ok ? r.json() : null))
+      )
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setEscalationClusterEvents(results.filter((e): e is PublicEvent => e != null));
+      })
+      .catch(() => {
+        if (!cancelled) setEscalationClusterEvents([]);
+      });
+    return () => { cancelled = true; };
+  }, [selectedEscalation?.event_ids]);
+
+  const filteredMapItems = useMemo(() => {
+    let list = applyMapFilters(mapItems, filters);
     if (selectedHeatingUpCountry) {
       list = list.filter((e) => (e.country_code ?? "").toUpperCase() === selectedHeatingUpCountry);
     }
     return list;
-  }, [events, filters, selectedHeatingUpCountry]);
+  }, [mapItems, filters, selectedHeatingUpCountry]);
 
-  const timelineFilteredEvents = useMemo(
-    () => filterEventsByTimeline(filteredEvents, timelineWindow, timelinePosition),
-    [filteredEvents, timelineWindow, timelinePosition]
+  const timelineFilteredMapItems = useMemo(
+    () => filterEventsByTimeline(filteredMapItems, timelineWindow, timelinePosition),
+    [filteredMapItems, timelineWindow, timelinePosition]
   );
 
-  const eventsWithCoords = useMemo(
-    () => timelineFilteredEvents.filter((e) => getEventCoordinates(e) !== null),
-    [timelineFilteredEvents]
+  const mapItemsWithCoords = useMemo(
+    () => timelineFilteredMapItems.filter((e) => getEventCoordinates(e) !== null),
+    [timelineFilteredMapItems]
   );
-  const eventsWithoutLocation = useMemo(
-    () => timelineFilteredEvents.filter((e) => getEventCoordinates(e) === null),
-    [timelineFilteredEvents]
+  const mapItemsWithoutLocation = useMemo(
+    () => timelineFilteredMapItems.filter((e) => getEventCoordinates(e) === null),
+    [timelineFilteredMapItems]
   );
 
-  const sidebarEventList = useMemo(() => {
-    if (!Array.isArray(timelineFilteredEvents) || timelineFilteredEvents.length === 0) return [];
-    return [...timelineFilteredEvents].sort((a, b) => {
-      const ta = Date.parse(a.occurred_at ?? a.created_at);
-      const tb = Date.parse(b.occurred_at ?? b.created_at);
+  const sidebarMapItemList = useMemo(() => {
+    if (!Array.isArray(timelineFilteredMapItems) || timelineFilteredMapItems.length === 0) return [];
+    return [...timelineFilteredMapItems].sort((a, b) => {
+      const ta = Date.parse(a.occurred_at ?? "");
+      const tb = Date.parse(b.occurred_at ?? "");
       return Number.isNaN(tb) && Number.isNaN(ta)
         ? 0
         : Number.isNaN(tb)
@@ -251,21 +323,51 @@ function MapPageContent() {
             ? 1
             : tb - ta;
     });
-  }, [timelineFilteredEvents]);
+  }, [timelineFilteredMapItems]);
 
   const handleSheetOpenChange = (open: boolean) => {
     setDrawerOpen(open);
     if (!open) {
       setShowNoLocationList(false);
       setSelectedEvent(null);
+      setSelectedIncident(null);
       setSelectedEscalation(null);
     }
   };
 
-  const handleMarkerClick = (event: PublicEvent) => {
-    setSelectedEvent(event);
+  const fetchAndShowMapItem = (item: PublicMapItem) => {
     setShowNoLocationList(false);
     setDrawerOpen(true);
+    if (item.incident_id != null) {
+      fetch(`/api/public/incidents/${item.id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { incident: unknown; events: PublicEvent[] } | null) => {
+          if (data?.incident && Array.isArray(data.events)) {
+            setSelectedIncident({ incident: data.incident as SelectedIncidentPayload["incident"], events: data.events });
+            setSelectedEvent(null);
+          }
+        });
+    } else {
+      fetch(`/api/public/events/${item.id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: PublicEvent | null) => {
+          if (data) {
+            setSelectedEvent(data);
+            setSelectedIncident(null);
+          }
+        });
+    }
+  };
+
+  const handleMarkerClick = (item: MapMarkerItem) => {
+    if ("incident_id" in item || "source_count" in item) {
+      fetchAndShowMapItem(item as PublicMapItem);
+    } else {
+      setSelectedEvent(item as PublicEvent);
+      setSelectedIncident(null);
+      setShowNoLocationList(false);
+      setDrawerOpen(true);
+    }
   };
 
   const handleOpenNoLocation = () => {
@@ -276,6 +378,7 @@ function MapPageContent() {
 
   const handleSelectEventFromList = (event: PublicEvent) => {
     setSelectedEvent(event);
+    setSelectedIncident(null);
     setShowNoLocationList(false);
     setSelectedEscalation(null);
   };
@@ -287,22 +390,21 @@ function MapPageContent() {
     setDrawerOpen(true);
   };
 
-  const handleSituationEventClick = (event: PublicEvent) => {
-    const coords = getEventCoordinates(event);
+  const handleSituationEventClick = (item: import("@/components/public/SituationSidebar").SituationEventLike) => {
+    const coords = getEventCoordinates(item);
     if (coords) {
       setCenterOn({ lng: coords[0], lat: coords[1], zoom: 10 });
     }
-    setSelectedEvent(event);
+    if ("summary" in item && item.summary !== undefined) {
+      setSelectedEvent(item as PublicEvent);
+      setSelectedIncident(null);
+    } else {
+      fetchAndShowMapItem(item as PublicMapItem);
+    }
     setShowNoLocationList(false);
     setSelectedEscalation(null);
     setDrawerOpen(true);
   };
-
-  const clusterEvents = useMemo(() => {
-    if (!selectedEscalation?.event_ids?.length) return [];
-    const set = new Set(selectedEscalation.event_ids);
-    return events.filter((e) => set.has(e.id));
-  }, [selectedEscalation, events]);
 
   return (
     <div className="flex h-screen flex-col">
@@ -310,14 +412,14 @@ function MapPageContent() {
         <h1 className="text-lg font-semibold">Map</h1>
         <div className="flex items-center gap-2">
           {user && <AlertsBell />}
-          {eventsWithoutLocation.length > 0 && (
+          {mapItemsWithoutLocation.length > 0 && (
             <Button
               variant="outline"
               size="sm"
               onClick={handleOpenNoLocation}
               className="text-xs"
             >
-              No location ({eventsWithoutLocation.length})
+              No location ({mapItemsWithoutLocation.length})
             </Button>
           )}
           <Link
@@ -384,20 +486,16 @@ function MapPageContent() {
                           type="button"
                           className="w-full rounded-md bg-background px-2 py-1 text-left text-xs hover:bg-muted transition-colors"
                           onClick={() => {
-                            const ev = events.find((e) => e.id === d.id);
-                            if (ev) {
-                              setSelectedEvent(ev);
-                              setShowNoLocationList(false);
-                              setDrawerOpen(true);
+                            const item = mapItems.find((m) => m.id === d.id);
+                            if (item) {
+                              fetchAndShowMapItem(item);
                             } else {
                               fetch(`/api/public/events/${d.id}`)
-                                .then((res) => res.ok ? res.json() : null)
+                                .then((res) => (res.ok ? res.json() : null))
                                 .then((data: PublicEvent | null) => {
                                   if (data) {
-                                    setEvents((prev) =>
-                                      prev.some((e) => e.id === data.id) ? prev : [...prev, data]
-                                    );
                                     setSelectedEvent(data);
+                                    setSelectedIncident(null);
                                     setShowNoLocationList(false);
                                     setDrawerOpen(true);
                                   }
@@ -430,46 +528,40 @@ function MapPageContent() {
             )}
           </div>
           <SituationSidebar
-            events={timelineFilteredEvents}
+            events={timelineFilteredMapItems}
             onEventClick={handleSituationEventClick}
           />
-          <HeatingUpPanel events={filteredEvents} />
+          <HeatingUpPanel events={filteredMapItems} />
           <div className="flex flex-1 flex-col min-h-0 space-y-2">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
               Event list
             </h2>
-            {sidebarEventList.length === 0 ? (
+            {sidebarMapItemList.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 No events match filters.
               </p>
             ) : (
               <ul className="space-y-1 overflow-y-auto min-h-0 flex-1">
-                {sidebarEventList.map((ev) => (
-                  <li key={ev.id}>
+                {sidebarMapItemList.map((item) => (
+                  <li key={item.id}>
                     <button
                       type="button"
                       className="w-full rounded-md bg-background px-2 py-1.5 text-left text-xs hover:bg-muted transition-colors"
-                      onClick={() => {
-                        setSelectedEvent(ev);
-                        setShowNoLocationList(false);
-                        setDrawerOpen(true);
-                      }}
+                      onClick={() => fetchAndShowMapItem(item)}
                     >
                       <div className="truncate font-medium">
-                        {ev.title?.trim() || "Untitled"}
+                        {item.title?.trim() || "Untitled"}
                       </div>
                       <div className="truncate text-[11px] text-muted-foreground">
-                        {ev.category}
-                        {ev.subtype ? ` · ${ev.subtype}` : ""} · {ev.severity}
+                        {item.category}
+                        {item.subtype ? ` · ${item.subtype}` : ""} · {item.severity}
                       </div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">
-                        {ev.occurred_at
-                          ? new Date(ev.occurred_at).toLocaleDateString(undefined, {
+                        {item.occurred_at
+                          ? new Date(item.occurred_at).toLocaleDateString(undefined, {
                               dateStyle: "short",
                             })
-                          : new Date(ev.created_at).toLocaleDateString(undefined, {
-                              dateStyle: "short",
-                            })}
+                          : "—"}
                       </div>
                     </button>
                   </li>
@@ -483,7 +575,7 @@ function MapPageContent() {
           <>
             <WorldMap
               accessToken={accessToken}
-              events={eventsWithCoords}
+              events={mapItemsWithCoords}
               escalations={escalations}
               heatmap={heatmap.length > 0 ? heatmap : undefined}
               crisisHeatmap={crisisHeatmap.length > 0 ? crisisHeatmap : undefined}
@@ -507,8 +599,8 @@ function MapPageContent() {
               />
               {!loading && !error && (
                 <div className="rounded-md border border-border bg-background/95 px-3 py-1.5 text-xs text-muted-foreground shadow backdrop-blur">
-                  Total: {filteredEvents.length} | Shown: {timelineFilteredEvents.length} | Mapped:{" "}
-                  {eventsWithCoords.length} | No location: {eventsWithoutLocation.length}
+                  Total: {filteredMapItems.length} | Shown: {timelineFilteredMapItems.length} | Mapped:{" "}
+                  {mapItemsWithCoords.length} | No location: {mapItemsWithoutLocation.length}
                 </div>
               )}
             </div>
@@ -529,7 +621,7 @@ function MapPageContent() {
             {error}
           </div>
         )}
-        {!loading && !error && filteredEvents.length === 0 && (
+        {!loading && !error && filteredMapItems.length === 0 && (
           <div className="absolute left-4 right-4 top-4 z-20 rounded-md border border-border bg-background/95 px-4 py-2 text-sm shadow backdrop-blur">
             No published events.
           </div>
@@ -541,10 +633,13 @@ function MapPageContent() {
         open={drawerOpen}
         onOpenChange={handleSheetOpenChange}
         event={showNoLocationList ? null : selectedEvent}
-        eventsWithoutLocation={
-          showNoLocationList ? eventsWithoutLocation : undefined
-        }
+        incident={selectedIncident?.incident ?? null}
+        incidentEvents={selectedIncident?.events ?? null}
         onSelectEvent={handleSelectEventFromList}
+        eventsWithoutLocation={
+          showNoLocationList ? mapItemsWithoutLocation : undefined
+        }
+        onSelectMapItem={showNoLocationList ? fetchAndShowMapItem : undefined}
         escalationCluster={
           selectedEscalation
             ? {
@@ -553,7 +648,7 @@ function MapPageContent() {
               }
             : null
         }
-        clusterEvents={clusterEvents}
+        clusterEvents={escalationClusterEvents}
       />
     </div>
   );
