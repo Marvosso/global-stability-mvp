@@ -9,7 +9,8 @@ export type WorkflowAuditAction =
   | "rejected"
   | "confidence_updated"
   | "auto_published"
-  | "backfill_auto_publish";
+  | "backfill_auto_publish"
+  | "backfill_publish_conflict";
 
 export type EventStatus = "Draft" | "UnderReview" | "Published" | "Rejected";
 
@@ -148,6 +149,22 @@ export function logBackfillAutoPublish(
     actor_id: null,
     actor_role: "backfill_script",
     details: { reason: "backfill auto-publish trusted structured feed" },
+  });
+}
+
+/**
+ * Log workflow audit: event published by backfill script (political/conflict candidates).
+ */
+export function logBackfillPublishConflict(
+  client: SupabaseClient,
+  params: { eventId: string }
+): ReturnType<ReturnType<SupabaseClient["from"]>["insert"]> {
+  return insertAudit(client, {
+    event_id: params.eventId,
+    action: "backfill_publish_conflict",
+    actor_id: null,
+    actor_role: "backfill_script",
+    details: { reason: "backfill publish political/conflict candidate" },
   });
 }
 
