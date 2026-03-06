@@ -106,7 +106,9 @@ export async function createAlertsForPublishedEvent(eventId: string): Promise<nu
 
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    (process.env.VERCEL_ENV === "production" ? "https://geostability.com" : null) ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    "http://localhost:3000";
   const mapLink = `${baseUrl}/map?eventId=${eventId}`;
   const eventTitle = (event.title as string)?.trim() || "Event";
   const location = event.primary_location as string | null;

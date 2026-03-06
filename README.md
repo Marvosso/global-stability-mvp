@@ -2,6 +2,14 @@
 
 Reference files and starter code for Global Stability MVP.
 
+## Domain setup (geostability.com)
+
+For production at **https://geostability.com**:
+
+1. **Vercel** — Add the domain in Project → Settings → Domains. Set `NEXT_PUBLIC_APP_URL=https://geostability.com` and `APP_BASE_URL=https://geostability.com` in env vars (optional; production fallback uses geostability.com).
+2. **Supabase** — Authentication → URL Configuration: set **Site URL** to `https://geostability.com` and add `https://geostability.com/**` to **Redirect URLs**.
+3. **GitHub Actions** — Set `APP_BASE_URL` (or `INGEST_BASE_URL`) secret to `https://geostability.com` for ingest workflows.
+
 ## Feed ingestion
 
 The app can ingest draft events from **RSS (or other) feeds**. Scripts fetch feeds, normalize items, and POST to the internal ingest API. The API dedupes by `source_url` in `ingestion_items` and creates **draft events only** (status `UnderReview`); nothing is auto-published.
@@ -61,7 +69,7 @@ The workflow `.github/workflows/ingest.yml` runs **GDACS** ingestion every 30 mi
 
 | Secret | Description |
 |--------|-------------|
-| `APP_BASE_URL` | Base URL of the deployed app (e.g. `https://your-app.vercel.app`). Used as `INGEST_BASE_URL` by the script. For local/manual runs you can use `http://localhost:3000` if the app is reachable. |
+| `APP_BASE_URL` | Base URL of the deployed app (e.g. `https://geostability.com`). Used as `INGEST_BASE_URL` by the script. For local/manual runs you can use `http://localhost:3000` if the app is reachable. |
 | `INGEST_API_KEY` | Same value as `INGEST_API_KEY` in your app environment. The ingest endpoint validates the `x-ingest-key` header against this. |
 | `GDACS_RSS_URL` | RSS feed URL for GDACS (e.g. `https://www.gdacs.org/gdacsrss.xml`). |
 
@@ -87,7 +95,8 @@ Each cron request **must** include the header `x-cron-key: <CRON_SECRET>` (or `A
    | `CRON_SECRET` | Yes | Secret for cron auth. Generate with `openssl rand -hex 32`. Used as `x-cron-key` header value. |
    | `INGEST_API_KEY` | Yes | Secret for the ingest API. Must match `x-ingest-key` when cron POSTs to `/api/internal/ingest`. |
    | `GDACS_RSS_URL` | For GDACS | RSS feed URL (e.g. `https://www.gdacs.org/xml/rss.xml`). |
-   | `APP_BASE_URL` | No | App URL for internal fetch. Defaults to request origin or `https://<VERCEL_URL>`. |
+   | `APP_BASE_URL` | No | App URL for internal fetch (e.g. `https://geostability.com`). Defaults to request origin or `https://<VERCEL_URL>`. |
+   | `NEXT_PUBLIC_APP_URL` | No | Canonical app URL for alert email links. Production default: `https://geostability.com`. |
 
 2. **Cron schedules** — `vercel.json`:
 
