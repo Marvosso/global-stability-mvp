@@ -10,12 +10,15 @@ import { ingestUSGS } from "@/lib/ingest/usgs";
 import { ingestGDACS } from "@/lib/ingest/gdacs";
 import { ingestGDELT } from "@/lib/ingest/gdelt";
 import { ingestCrisisWatch } from "@/lib/ingest/crisiswatch";
+import { ingestWHO } from "@/lib/ingest/who";
+import { ingestStateDept } from "@/lib/ingest/stateDept";
+import { ingestReliefWeb } from "@/lib/ingest/reliefweb";
 import { badRequest, forbidden, internalError, unauthorized } from "@/lib/apiError";
 
 // Allow up to 60s on Vercel Pro (each feed makes external HTTP calls + DB writes)
 export const maxDuration = 60;
 
-const SUPPORTED_FEEDS = ["usgs_eq", "usgs", "gdacs_rss", "gdacs", "gdelt", "crisiswatch"] as const;
+const SUPPORTED_FEEDS = ["usgs_eq", "usgs", "gdacs_rss", "gdacs", "gdelt", "crisiswatch", "who_outbreaks", "state_dept_advisories", "reliefweb_disasters"] as const;
 
 const FEED_TIMEOUT_MS = 50_000;
 
@@ -66,6 +69,12 @@ export async function POST(request: NextRequest) {
       result = await withTimeout(ingestGDACS(), "GDACS");
     } else if (feedKey === "gdelt") {
       result = await withTimeout(ingestGDELT(), "GDELT");
+    } else if (feedKey === "who_outbreaks") {
+      result = await withTimeout(ingestWHO(), "WHO");
+    } else if (feedKey === "state_dept_advisories") {
+      result = await withTimeout(ingestStateDept(), "State Dept");
+    } else if (feedKey === "reliefweb_disasters") {
+      result = await withTimeout(ingestReliefWeb(), "ReliefWeb");
     } else {
       result = await withTimeout(ingestCrisisWatch(), "CrisisWatch");
     }
