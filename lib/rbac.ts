@@ -62,6 +62,11 @@ export function getUserRoleFromUser(user: User): UserRole {
   return userRoleFromUser(user);
 }
 
+/** Exported for middleware: get internal role from user app_metadata (no extra Supabase call). */
+export function getInternalRoleFromUser(user: User): InternalRole | null {
+  return roleFromUser(user);
+}
+
 /**
  * Single place for normalizing the access token for RBAC.
  * All token sources (Authorization header and auth cookie) must be passed through this before calling Supabase auth.
@@ -152,15 +157,18 @@ export async function getAuthenticatedUserWithRole(
 export async function requirePremium(
   request: NextRequest
 ): Promise<{ userId: string; user_role: UserRole }> {
-  const ctx = await getAuthenticatedUserWithRole(request);
-  if (ctx.user_role === "free") {
-    const err = Object.assign(new Error("Upgrade required"), {
+  const user = await getSupabaseAuthUser(request);
+  if (!user) throw new UnauthorizedError("Unauthorized");
+  const user_role = userRoleFromUser(user);
+  // Admin and Reviewer bypass the premium gate — they have full access regardless of feature tier
+  const internalRole = roleFromUser(user);
+  if (user_role === "free" && internalRole !== "Admin" && internalRole !== "Reviewer") {
+    throw Object.assign(new Error("Upgrade required"), {
       status: 403 as const,
       code: "UPGRADE_REQUIRED" as const,
     });
-    throw err;
   }
-  return ctx;
+  return { userId: user.id, user_role };
 }
 
 /**

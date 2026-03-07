@@ -4,6 +4,7 @@ import { rateLimitExceeded, upgradeRequired } from "./lib/apiError";
 import {
   getSupabaseAuthUserForMiddleware,
   getUserRoleFromUser,
+  getInternalRoleFromUser,
 } from "./lib/rbac";
 
 const PREMIUM_PATHS = [
@@ -59,7 +60,9 @@ export async function middleware(request: NextRequest) {
       );
     }
     const user_role = getUserRoleFromUser(user);
-    if (user_role === "free") {
+    const internalRole = getInternalRoleFromUser(user);
+    // Admin and Reviewer bypass the premium gate
+    if (user_role === "free" && internalRole !== "Admin" && internalRole !== "Reviewer") {
       return upgradeRequired();
     }
   }
