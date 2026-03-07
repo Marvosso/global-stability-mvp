@@ -1,5 +1,5 @@
 /**
- * Admin-only: run a feed ingestion (USGS or GDACS).
+ * Admin-only: run a single feed ingestion.
  * POST /api/internal/admin/run-feed — body { feed_key }.
  * Returns { fetched, processed, skipped }.
  */
@@ -8,7 +8,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/rbac";
 import { ingestUSGS } from "@/lib/ingest/usgs";
 import { ingestGDACS } from "@/lib/ingest/gdacs";
+import { ingestGDELT } from "@/lib/ingest/gdelt";
+import { ingestCrisisWatch } from "@/lib/ingest/crisiswatch";
 import { badRequest, forbidden, internalError, unauthorized } from "@/lib/apiError";
+
+const SUPPORTED_FEEDS = ["usgs_eq", "usgs", "gdacs_rss", "gdacs", "gdelt", "crisiswatch"] as const;
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,24 +36,23 @@ export async function POST(request: NextRequest) {
     return badRequest("feed_key is required");
   }
 
-  const isUsgs = feedKey === "usgs_eq" || feedKey === "usgs";
-  const isGdacs = feedKey === "gdacs_rss" || feedKey === "gdacs";
-
-  if (!isUsgs && !isGdacs) {
-    return badRequest("feed_key must be usgs_eq or gdacs");
+  if (!SUPPORTED_FEEDS.includes(feedKey as typeof SUPPORTED_FEEDS[number])) {
+    return badRequest(`feed_key must be one of: ${SUPPORTED_FEEDS.join(", ")}`);
   }
 
   try {
-    if (isUsgs) {
-      const result = await ingestUSGS();
-      return NextResponse.json({
-        fetched: result.fetched,
-        processed: result.processed,
-        skipped: result.skipped,
-      });
+    let result: { fetched: number; processed: number; skipped: number };
+
+    if (feedKey === "usgs_eq" || feedKey === "usgs") {
+      result = await ingestUSGS();
+    } else if (feedKey === "gdacs_rss" || feedKey === "gdacs") {
+      result = await ingestGDACS();
+    } else if (feedKey === "gdelt") {
+      result = await ingestGDELT();
+    } else {
+      result = await ingestCrisisWatch();
     }
 
-    const result = await ingestGDACS();
     return NextResponse.json({
       fetched: result.fetched,
       processed: result.processed,

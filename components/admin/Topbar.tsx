@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Menu } from "lucide-react";
+import Link from "next/link";
+import { Menu, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertsBell } from "@/components/alerts/AlertsBell";
 import { useSession } from "@/components/auth/SessionProvider";
@@ -45,6 +46,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         <span className="hidden rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground md:inline">
           {role ?? "—"}
         </span>
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
+            <ExternalLink className="size-3.5" />
+            <span className="hidden sm:inline">View Site</span>
+          </Link>
+        </Button>
         <Button variant="ghost" size="sm" onClick={handleLogout}>
           Logout
         </Button>

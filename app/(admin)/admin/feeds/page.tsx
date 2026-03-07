@@ -34,7 +34,13 @@ type IngestionRun = {
 const FEEDS = [
   { feed_key: "usgs_eq", label: "USGS Earthquakes" },
   { feed_key: "gdacs_rss", label: "GDACS Disasters" },
+  { feed_key: "gdelt", label: "GDELT Events" },
+  { feed_key: "crisiswatch", label: "CrisisWatch" },
 ] as const;
+
+type FeedKey = typeof FEEDS[number]["feed_key"];
+
+type RunState = { status: "idle" | "running" | "success" | "error"; message?: string };
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -51,7 +57,12 @@ export default function FeedsPage() {
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [runStatus, setRunStatus] = useState<Record<string, { status: "idle" | "running" | "success" | "error"; message?: string }>>({});
+  const [runStatus, setRunStatus] = useState<Record<string, RunState>>({});
+  const [runAllState, setRunAllState] = useState<RunState>({ status: "idle" });
+
+  const anyRunning =
+    runAllState.status === "running" ||
+    Object.values(runStatus).some((s) => s.status === "running");
 
   const fetchRuns = useCallback(async () => {
     if (!session?.access_token) return;
@@ -81,7 +92,7 @@ export default function FeedsPage() {
     fetchRuns();
   }, [isLoading, session?.access_token, fetchRuns]);
 
-  async function runFeed(feedKey: string) {
+  async function runFeed(feedKey: FeedKey) {
     if (!session?.access_token) return;
     setRunStatus((prev) => ({ ...prev, [feedKey]: { status: "running" } }));
 
@@ -133,6 +144,59 @@ export default function FeedsPage() {
     }
   }
 
+  async function runAllFeeds() {
+    if (!session?.access_token) return;
+    setRunAllState({ status: "running" });
+
+    try {
+      const res = await fetch("/api/internal/admin/run-all-feeds", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setRunAllState({
+          status: "error",
+          message: data.error ?? data.message ?? res.statusText,
+        });
+        return;
+      }
+
+      const results = data.results as Record<
+        string,
+        | { fetched: number; processed: number; skipped: number }
+        | { error: string }
+      >;
+
+      const parts = Object.entries(results).map(([key, val]) =>
+        "error" in val
+          ? `${key}: error — ${val.error}`
+          : `${key}: fetched ${val.fetched}, processed ${val.processed}, skipped ${val.skipped}`
+      );
+
+      setRunAllState({
+        status: "success",
+        message: parts.join(" | "),
+      });
+
+      await fetchRuns();
+
+      setTimeout(() => {
+        setRunAllState({ status: "idle" });
+      }, 6000);
+    } catch (err) {
+      setRunAllState({
+        status: "error",
+        message: err instanceof Error ? err.message : "Request failed",
+      });
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex min-h-[200px] items-center justify-center">
@@ -154,12 +218,36 @@ export default function FeedsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Run feed</CardTitle>
+          <CardTitle>Run feeds</CardTitle>
           <CardDescription>
-            Trigger ingestion for a feed. Results appear in the table below.
+            Trigger ingestion for individual feeds or run all at once. Results appear in the table below.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Run All button */}
+          <div className="flex flex-col gap-1">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={runAllFeeds}
+              disabled={anyRunning}
+              className="w-fit"
+            >
+              {runAllState.status === "running" ? "Running all feeds…" : "Run All Feeds"}
+            </Button>
+            {runAllState.status === "success" && runAllState.message && (
+              <p className="text-xs text-green-600 dark:text-green-400 max-w-prose break-words">
+                {runAllState.message}
+              </p>
+            )}
+            {runAllState.status === "error" && runAllState.message && (
+              <p className="text-xs text-destructive">{runAllState.message}</p>
+            )}
+          </div>
+
+          <div className="border-t border-border" />
+
+          {/* Per-feed buttons */}
           <div className="flex flex-wrap gap-4">
             {FEEDS.map(({ feed_key, label }) => {
               const status = runStatus[feed_key] ?? { status: "idle" as const };
@@ -169,7 +257,7 @@ export default function FeedsPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => runFeed(feed_key)}
-                    disabled={status.status === "running"}
+                    disabled={anyRunning}
                   >
                     {status.status === "running" ? "Running…" : `Run ${label}`}
                   </Button>
@@ -198,7 +286,9 @@ export default function FeedsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {runs.length === 0 ? (
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading runs…</p>
+          ) : runs.length === 0 ? (
             <p className="text-sm text-muted-foreground">No runs yet.</p>
           ) : (
             <Table>
