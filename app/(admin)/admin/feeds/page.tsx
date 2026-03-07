@@ -148,53 +148,12 @@ export default function FeedsPage() {
     if (!session?.access_token) return;
     setRunAllState({ status: "running" });
 
-    try {
-      const res = await fetch("/api/internal/admin/run-all-feeds", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+    // Fire all feeds in parallel — each manages its own per-feed status.
+    // This avoids a single long-lived server request that can time out on Vercel.
+    await Promise.allSettled(FEEDS.map(({ feed_key }) => runFeed(feed_key)));
 
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setRunAllState({
-          status: "error",
-          message: data.error ?? data.message ?? res.statusText,
-        });
-        return;
-      }
-
-      const results = data.results as Record<
-        string,
-        | { fetched: number; processed: number; skipped: number }
-        | { error: string }
-      >;
-
-      const parts = Object.entries(results).map(([key, val]) =>
-        "error" in val
-          ? `${key}: error — ${val.error}`
-          : `${key}: fetched ${val.fetched}, processed ${val.processed}, skipped ${val.skipped}`
-      );
-
-      setRunAllState({
-        status: "success",
-        message: parts.join(" | "),
-      });
-
-      await fetchRuns();
-
-      setTimeout(() => {
-        setRunAllState({ status: "idle" });
-      }, 6000);
-    } catch (err) {
-      setRunAllState({
-        status: "error",
-        message: err instanceof Error ? err.message : "Request failed",
-      });
-    }
+    setRunAllState({ status: "success", message: "All feeds completed. See individual results below." });
+    setTimeout(() => setRunAllState({ status: "idle" }), 5000);
   }
 
   if (isLoading) {

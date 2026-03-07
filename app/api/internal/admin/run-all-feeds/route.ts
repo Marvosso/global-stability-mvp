@@ -1,5 +1,5 @@
 /**
- * Admin-only: run all configured feed ingestions sequentially.
+ * Admin-only: run all configured feed ingestions in parallel.
  * POST /api/internal/admin/run-all-feeds
  * Returns { results: Record<feed_key, { fetched, processed, skipped } | { error }> }
  */
@@ -12,15 +12,31 @@ import { ingestGDELT } from "@/lib/ingest/gdelt";
 import { ingestCrisisWatch } from "@/lib/ingest/crisiswatch";
 import { forbidden, internalError, unauthorized } from "@/lib/apiError";
 
+export const maxDuration = 60;
+
+const FEED_TIMEOUT_MS = 50_000;
+
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${FEED_TIMEOUT_MS / 1000}s`)),
+        FEED_TIMEOUT_MS
+      )
+    ),
+  ]);
+}
+
 type FeedResult =
   | { fetched: number; processed: number; skipped: number }
   | { error: string };
 
-const FEEDS: { feed_key: string; run: () => Promise<{ fetched: number; processed: number; skipped: number }> }[] = [
-  { feed_key: "usgs_eq", run: () => ingestUSGS() },
-  { feed_key: "gdacs_rss", run: () => ingestGDACS() },
-  { feed_key: "gdelt", run: () => ingestGDELT() },
-  { feed_key: "crisiswatch", run: () => ingestCrisisWatch() },
+const FEEDS: { feed_key: string; label: string; run: () => Promise<{ fetched: number; processed: number; skipped: number }> }[] = [
+  { feed_key: "usgs_eq", label: "USGS", run: () => ingestUSGS() },
+  { feed_key: "gdacs_rss", label: "GDACS", run: () => ingestGDACS() },
+  { feed_key: "gdelt", label: "GDELT", run: () => ingestGDELT() },
+  { feed_key: "crisiswatch", label: "CrisisWatch", run: () => ingestCrisisWatch() },
 ];
 
 export async function POST(request: NextRequest) {
@@ -33,22 +49,25 @@ export async function POST(request: NextRequest) {
     throw err;
   }
 
-  const results: Record<string, FeedResult> = {};
+  const settled = await Promise.allSettled(
+    FEEDS.map(({ label, run }) => withTimeout(run(), label))
+  );
 
-  for (const { feed_key, run } of FEEDS) {
-    try {
-      const result = await run();
+  const results: Record<string, FeedResult> = {};
+  FEEDS.forEach(({ feed_key }, i) => {
+    const outcome = settled[i];
+    if (outcome.status === "fulfilled") {
       results[feed_key] = {
-        fetched: result.fetched,
-        processed: result.processed,
-        skipped: result.skipped,
+        fetched: outcome.value.fetched,
+        processed: outcome.value.processed,
+        skipped: outcome.value.skipped,
       };
-    } catch (err) {
+    } else {
       results[feed_key] = {
-        error: err instanceof Error ? err.message : "Unknown error",
+        error: outcome.reason instanceof Error ? outcome.reason.message : "Unknown error",
       };
     }
-  }
+  });
 
   return NextResponse.json({ results });
 }

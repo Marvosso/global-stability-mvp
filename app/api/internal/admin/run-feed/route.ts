@@ -12,7 +12,24 @@ import { ingestGDELT } from "@/lib/ingest/gdelt";
 import { ingestCrisisWatch } from "@/lib/ingest/crisiswatch";
 import { badRequest, forbidden, internalError, unauthorized } from "@/lib/apiError";
 
+// Allow up to 60s on Vercel Pro (each feed makes external HTTP calls + DB writes)
+export const maxDuration = 60;
+
 const SUPPORTED_FEEDS = ["usgs_eq", "usgs", "gdacs_rss", "gdacs", "gdelt", "crisiswatch"] as const;
+
+const FEED_TIMEOUT_MS = 50_000;
+
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${FEED_TIMEOUT_MS / 1000}s`)),
+        FEED_TIMEOUT_MS
+      )
+    ),
+  ]);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,13 +61,13 @@ export async function POST(request: NextRequest) {
     let result: { fetched: number; processed: number; skipped: number };
 
     if (feedKey === "usgs_eq" || feedKey === "usgs") {
-      result = await ingestUSGS();
+      result = await withTimeout(ingestUSGS(), "USGS");
     } else if (feedKey === "gdacs_rss" || feedKey === "gdacs") {
-      result = await ingestGDACS();
+      result = await withTimeout(ingestGDACS(), "GDACS");
     } else if (feedKey === "gdelt") {
-      result = await ingestGDELT();
+      result = await withTimeout(ingestGDELT(), "GDELT");
     } else {
-      result = await ingestCrisisWatch();
+      result = await withTimeout(ingestCrisisWatch(), "CrisisWatch");
     }
 
     return NextResponse.json({
