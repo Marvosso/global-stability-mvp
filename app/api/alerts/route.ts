@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/app/api/_lib/db";
-import { requirePremium } from "@/lib/rbac";
+import { requirePremium, requireReviewer } from "@/lib/rbac";
 import { createRequestLogger } from "@/lib/logger";
 import { responseFromThrown, unauthorized, internalError } from "@/lib/apiError";
 import { NextRequest, NextResponse } from "next/server";
@@ -7,17 +7,23 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * GET /api/alerts
  * Returns alerts for the logged-in user (newest first).
+ * Accepts premium/enterprise users OR admin/reviewer users.
  */
 export async function GET(request: NextRequest) {
   const requestId = crypto.randomUUID();
 
-  let ctx;
+  let ctx: { userId: string };
   try {
     ctx = await requirePremium(request);
-  } catch (err) {
-    const res = responseFromThrown(err);
-    if (res) return res;
-    return unauthorized();
+  } catch (premiumErr) {
+    // Admin and Reviewer users can also access their own alerts
+    try {
+      ctx = await requireReviewer(request);
+    } catch {
+      const res = responseFromThrown(premiumErr);
+      if (res) return res;
+      return unauthorized();
+    }
   }
 
   const log = createRequestLogger({ requestId });

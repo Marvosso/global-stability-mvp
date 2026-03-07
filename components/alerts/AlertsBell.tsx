@@ -46,6 +46,12 @@ export function AlertsBell() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [pollEnabled, setPollEnabled] = useState(true);
+
+  // Reset poll on new session (e.g. user switches accounts)
+  useEffect(() => {
+    setPollEnabled(true);
+  }, [session?.access_token]);
 
   const fetchAlerts = useCallback(async () => {
     if (!session?.access_token) return;
@@ -54,22 +60,28 @@ export function AlertsBell() {
       const res = await fetch("/api/alerts", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // 401/403 = no access; stop polling to avoid console spam
+        if (res.status === 401 || res.status === 403) {
+          setPollEnabled(false);
+        }
+        return;
+      }
       const data = await res.json();
       setAlerts(Array.isArray(data) ? data : []);
     } catch {
-      // ignore
+      // ignore transient network errors
     } finally {
       setLoading(false);
     }
   }, [session?.access_token]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !pollEnabled) return;
     fetchAlerts();
     const interval = setInterval(fetchAlerts, 30_000);
     return () => clearInterval(interval);
-  }, [user, fetchAlerts]);
+  }, [user, fetchAlerts, pollEnabled]);
 
   const handleMarkAsRead = useCallback(
     async (alertId: string) => {
