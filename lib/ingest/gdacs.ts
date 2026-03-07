@@ -24,6 +24,7 @@ export type GdacsIngestItem = {
   summary?: string;
   published_at?: string;
   occurred_at?: string;
+  location?: string;
   category?: string;
   subtype?: string;
 };
@@ -35,7 +36,14 @@ const EVENTTYPE_TO_SUBTYPE: Record<string, "Earthquake" | "Flood" | "Cyclone" | 
   DR: "Drought",
 };
 
-type RssItem = { title: string; link: string; pubDate?: string; description?: string };
+type RssItem = {
+  title: string;
+  link: string;
+  pubDate?: string;
+  description?: string;
+  gdacsLatitude?: string;
+  gdacsLongitude?: string;
+};
 
 function parseEventTypeFromUrl(url: string): "Earthquake" | "Flood" | "Cyclone" | "Drought" | null {
   try {
@@ -54,6 +62,7 @@ function parseRssItemsFromXml(xml: string): RssItem[] {
   const items: RssItem[] = [];
   const itemBlock = /<item[^>]*>([\s\S]*?)<\/item>/gi;
   const tag = (name: string) => new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i");
+  const nsTag = (name: string) => new RegExp(`<(?:[a-z]+:)?${name}[^>]*>([\\s\\S]*?)</(?:[a-z]+:)?${name}>`, "i");
   let m: RegExpExecArray | null;
   while ((m = itemBlock.exec(xml)) !== null) {
     const block = m[1];
@@ -61,12 +70,16 @@ function parseRssItemsFromXml(xml: string): RssItem[] {
     const linkMatch = tag("link").exec(block) || tag("guid").exec(block);
     const pubMatch = tag("pubDate").exec(block) || tag("date").exec(block);
     const descMatch = tag("description").exec(block);
+    const latMatch = nsTag("latitude").exec(block);
+    const lngMatch = nsTag("longitude").exec(block);
     const title = (titleMatch?.[1] ?? "").replace(/<[^>]+>/g, "").replace(/^\s+|\s+$/g, "");
     const link = (linkMatch?.[1] ?? "").replace(/^\s+|\s+$/g, "");
     const pubDate = pubMatch?.[1]?.replace(/^\s+|\s+$/g, "");
     const description = descMatch?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const gdacsLatitude = latMatch?.[1]?.replace(/^\s+|\s+$/g, "");
+    const gdacsLongitude = lngMatch?.[1]?.replace(/^\s+|\s+$/g, "");
     if (link && link.startsWith("http")) {
-      items.push({ title, link, pubDate, description });
+      items.push({ title, link, pubDate, description, gdacsLatitude, gdacsLongitude });
     }
   }
   return items;
@@ -77,6 +90,23 @@ function toIngestItem(item: RssItem): GdacsIngestItem {
   const summary = (item.description ?? item.title ?? "").trim().slice(0, 5000) || title;
   const sourceUrl = item.link.trim();
   const subtype = parseEventTypeFromUrl(sourceUrl);
+
+  let location: string | undefined;
+  if (item.gdacsLatitude && item.gdacsLongitude) {
+    const lat = parseFloat(item.gdacsLatitude);
+    const lng = parseFloat(item.gdacsLongitude);
+    if (
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180
+    ) {
+      location = `${lat},${lng}`;
+    }
+  }
+
   const out: GdacsIngestItem = {
     feed_key: FEED_KEY,
     source_name: SOURCE_NAME,
@@ -84,6 +114,7 @@ function toIngestItem(item: RssItem): GdacsIngestItem {
     title,
     summary,
     ...(item.pubDate && { published_at: item.pubDate, occurred_at: item.pubDate }),
+    ...(location && { location }),
   };
   if (subtype) {
     out.category = "Natural Disaster";
@@ -123,16 +154,28 @@ export async function ingestGDACS(
 
   let items: RssItem[];
   try {
-    const parser = new Parser();
+    const parser = new Parser({
+      customFields: {
+        item: [
+          ["gdacs:latitude", "gdacsLatitude"],
+          ["gdacs:longitude", "gdacsLongitude"],
+        ],
+      },
+    });
     const feed = await parser.parseString(xml);
     items = (feed.items ?? [])
-      .map((i) => ({
-        title: (i.title ?? "").trim(),
-        link: (i.link ?? "").trim(),
-        pubDate: i.pubDate,
-        description:
-          typeof i.contentSnippet === "string" ? i.contentSnippet : (i.content ?? undefined),
-      }))
+      .map((i) => {
+        const raw = (i as unknown) as Record<string, unknown>;
+        return {
+          title: (i.title ?? "").trim(),
+          link: (i.link ?? "").trim(),
+          pubDate: i.pubDate,
+          description:
+            typeof i.contentSnippet === "string" ? i.contentSnippet : (i.content ?? undefined),
+          gdacsLatitude: typeof raw.gdacsLatitude === "string" ? raw.gdacsLatitude : undefined,
+          gdacsLongitude: typeof raw.gdacsLongitude === "string" ? raw.gdacsLongitude : undefined,
+        };
+      })
       .filter((i) => i.link && i.link.startsWith("http"));
   } catch {
     items = parseRssItemsFromXml(xml);
