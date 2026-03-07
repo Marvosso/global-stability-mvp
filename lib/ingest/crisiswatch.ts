@@ -123,6 +123,15 @@ async function fetchAndParseRss(rssUrl: string): Promise<FeedItemLike[]> {
     );
   }
 
+  // Detect HTML response — indicates redirect to a non-RSS page (e.g. the feed URL has moved)
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("text/html")) {
+    throw new Error(
+      `CrisisWatch RSS returned HTML instead of RSS/XML. The feed URL appears broken or removed. ` +
+      `URL: ${rssUrl} — update CRISISWATCH_RSS_URL env var or the default URL in the ingest script.`
+    );
+  }
+
   const rawXml = await res.text();
   const xml = sanitizeXml(rawXml);
 
@@ -197,9 +206,13 @@ export type IngestCrisisWatchOptions = {
 export async function ingestCrisisWatch(
   options: IngestCrisisWatchOptions = {}
 ): Promise<{ fetched: number; processed: number; skipped: number }> {
+  // NOTE: The old CrisisWatch-specific feed (/crisiswatch/rss.xml, /rss/crisiswatch)
+  // redirects to an HTML page as of 2026-03. The global feed (/rss) returns RSS/XML
+  // but is not CrisisWatch-filtered. Set CRISISWATCH_RSS_URL to override if a working
+  // CrisisWatch-specific feed becomes available.
   const rssUrl =
     (options.rssUrl ?? process.env.CRISISWATCH_RSS_URL ?? "").trim() ||
-    "https://www.crisisgroup.org/crisiswatch/rss.xml";
+    "https://www.crisisgroup.org/rss";
 
   if (!rssUrl.startsWith("http")) {
     throw new Error("CRISISWATCH_RSS_URL must be a valid HTTP(S) URL");
