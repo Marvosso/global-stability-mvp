@@ -146,7 +146,27 @@ export async function ingestGenericRss(
 ): Promise<{ fetched: number; processed: number; skipped: number }> {
   const { feed_key, source_name, rss_url, default_category, default_subtype, mapTaxonomy } = config;
 
-  const items = await fetchAndParseRss(rss_url);
+  let runId: string | null = null;
+  try {
+    const { data: runRow, error: runInsertErr } = await supabaseAdmin
+      .from("ingestion_runs")
+      .insert({ feed_key, items_fetched: 0, processed: 0, skipped: 0, status: "running" })
+      .select("id")
+      .single();
+    runId = runInsertErr ? null : (runRow?.id ?? null);
+  } catch {
+    runId = null;
+  }
+
+  const items = await fetchAndParseRss(rss_url).catch(async (err) => {
+    if (runId) {
+      await supabaseAdmin
+        .from("ingestion_runs")
+        .update({ finished_at: new Date().toISOString(), status: "error", items_fetched: 0, processed: 0, skipped: 0 })
+        .eq("id", runId);
+    }
+    throw err;
+  });
 
   const ingestItems: IngestItem[] = items
     .map((item): IngestItem | null => {
@@ -182,6 +202,12 @@ export async function ingestGenericRss(
     .filter((x): x is IngestItem => x != null);
 
   if (ingestItems.length === 0) {
+    if (runId) {
+      await supabaseAdmin
+        .from("ingestion_runs")
+        .update({ finished_at: new Date().toISOString(), items_fetched: 0, processed: 0, skipped: 0, status: "ok" })
+        .eq("id", runId);
+    }
     return { fetched: 0, processed: 0, skipped: 0 };
   }
 
@@ -258,6 +284,17 @@ export async function ingestGenericRss(
         .update({ status: "Skipped" })
         .eq("id", inserted.id);
       skipped++;
+    }
+  }
+
+  if (runId) {
+    try {
+      await supabaseAdmin
+        .from("ingestion_runs")
+        .update({ finished_at: new Date().toISOString(), items_fetched: ingestItems.length, processed, skipped, status: "ok" })
+        .eq("id", runId);
+    } catch {
+      // ignore
     }
   }
 

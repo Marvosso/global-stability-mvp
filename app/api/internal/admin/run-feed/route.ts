@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[run-feed] feed ingest failed", { feed_key: feedKey, error: message });
     return internalError(message);
   }
 }
