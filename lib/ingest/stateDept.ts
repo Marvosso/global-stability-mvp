@@ -8,7 +8,7 @@
 import { ingestGenericRss } from "./genericRss";
 
 const DEFAULT_URL =
-  "https://travel.state.gov/content/travel/en/traveladvisories/RSS.xml";
+  "https://travel.state.gov/_res/rss/TAsTWs.xml";
 
 export async function ingestStateDept(
   options: { rssUrl?: string } = {}

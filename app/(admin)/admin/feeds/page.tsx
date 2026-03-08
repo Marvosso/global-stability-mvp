@@ -36,7 +36,6 @@ const FEEDS = [
   { feed_key: "gdacs_rss", label: "GDACS Disasters" },
   { feed_key: "gdelt", label: "GDELT Events" },
   { feed_key: "crisiswatch", label: "CrisisWatch" },
-  { feed_key: "who_outbreaks", label: "WHO Disease Outbreaks" },
   { feed_key: "state_dept_advisories", label: "State Dept Advisories" },
   { feed_key: "reliefweb_disasters", label: "ReliefWeb Disasters" },
 ] as const;

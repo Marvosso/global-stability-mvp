@@ -176,6 +176,11 @@ export async function ingestGDELT(
   });
   const resText = await res.text();
 
+  if (res.status === 429) {
+    console.warn("[gdelt] rate limited (429) — skipping this run");
+    return { fetched: 0, processed: 0, skipped: 0 };
+  }
+
   if (!res.ok) {
     throw new Error(
       `GDELT fetch failed: ${res.status} ${res.statusText} ${resText.slice(0, 200)}`

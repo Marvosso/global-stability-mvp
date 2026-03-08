@@ -19,7 +19,7 @@ const SOURCE_NAME = "ReliefWeb Disasters";
 
 const DEFAULT_API_URL =
   "https://api.reliefweb.int/v1/disasters?appname=global-stability-mvp&limit=50" +
-  "&fields[include][]=title&fields[include][]=date&fields[include][]=country" +
+  "&fields[include][]=name&fields[include][]=date&fields[include][]=country" +
   "&fields[include][]=type&fields[include][]=url&fields[include][]=status" +
   "&filter[field]=status&filter[value]=ongoing";
 
@@ -38,7 +38,7 @@ function mapDisasterType(typeName: string): EventSubtype | undefined {
 type ReliefWebDisaster = {
   id: number;
   fields: {
-    title?: string;
+    name?: string;
     url?: string;
     status?: string;
     date?: { created?: string; event?: string };
@@ -96,7 +96,7 @@ export async function ingestReliefWeb(
   const ingestItems: IngestItem[] = disasters
     .map((disaster): IngestItem | null => {
       const fields = disaster.fields;
-      const title = (fields.title ?? "").trim();
+      const title = (fields.name ?? "").trim();
       const sourceUrl = (fields.url ?? "").trim();
       if (!title || !sourceUrl) return null;
 
