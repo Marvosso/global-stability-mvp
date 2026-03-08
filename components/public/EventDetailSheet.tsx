@@ -52,13 +52,17 @@ type ContextFact = {
   confidence_level: string | null;
   created_at: string;
 };
+/** Approved context from GET /api/public/events/[id]/context (only when status = Approved). */
+type ApprovedContext = {
+  event_id: string;
+  summary: string | null;
+  why_it_matters: string | null;
+  likely_driver: string | null;
+  uncertainty_note: string | null;
+  updated_at: string | null;
+};
 type EventContextData = {
-  event_context: {
-    one_paragraph_summary: string | null;
-    background: string | null;
-    trigger: string | null;
-    updated_at: string;
-  } | null;
+  event_context: ApprovedContext | null;
   claims: ContextClaim[];
   facts: ContextFact[];
 };
@@ -156,8 +160,22 @@ export function EventDetailSheet({
         if (!res.ok) throw new Error("Failed to load context");
         return res.json();
       })
-      .then((data: EventContextData | null) => {
-        if (!cancelled && data) setContextData(data);
+      .then((data: { available?: boolean; event_id?: string; summary?: string | null; why_it_matters?: string | null; likely_driver?: string | null; uncertainty_note?: string | null; updated_at?: string | null; claims?: ContextClaim[]; facts?: ContextFact[] } | null) => {
+        if (cancelled || !data) return;
+        const claims = data.claims ?? [];
+        const facts = data.facts ?? [];
+        const event_context: ApprovedContext | null =
+          data.available === false || data.event_id == null
+            ? null
+            : {
+                event_id: data.event_id,
+                summary: data.summary ?? null,
+                why_it_matters: data.why_it_matters ?? null,
+                likely_driver: data.likely_driver ?? null,
+                uncertainty_note: data.uncertainty_note ?? null,
+                updated_at: data.updated_at ?? null,
+              };
+        setContextData({ event_context, claims, facts });
       })
       .catch((err) => {
         if (!cancelled)
@@ -351,6 +369,59 @@ export function EventDetailSheet({
               </CardContent>
             </Card>
           )}
+          {event && (
+            <div className="mt-4 space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Context Analysis
+              </h3>
+              {contextLoading && (
+                <p className="text-sm text-muted-foreground">Loading context…</p>
+              )}
+              {!contextLoading && contextError && (
+                <p className="text-sm text-destructive">{contextError}</p>
+              )}
+              {!contextLoading && !contextError && contextData && (
+                <>
+                  {contextData.event_context &&
+                  (contextData.event_context.summary != null ||
+                    contextData.event_context.why_it_matters != null ||
+                    contextData.event_context.likely_driver != null ||
+                    contextData.event_context.uncertainty_note != null) ? (
+                    <Card>
+                      <CardContent className="space-y-4 pt-4">
+                        {contextData.event_context.summary?.trim() && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">Summary</p>
+                            <p className="text-sm whitespace-pre-wrap">{contextData.event_context.summary}</p>
+                          </div>
+                        )}
+                        {contextData.event_context.why_it_matters?.trim() && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">Why this matters</p>
+                            <p className="text-sm whitespace-pre-wrap">{contextData.event_context.why_it_matters}</p>
+                          </div>
+                        )}
+                        {contextData.event_context.likely_driver?.trim() && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">Likely driver</p>
+                            <p className="text-sm whitespace-pre-wrap">{contextData.event_context.likely_driver}</p>
+                          </div>
+                        )}
+                        {contextData.event_context.uncertainty_note?.trim() && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">Uncertainty</p>
+                            <p className="text-sm whitespace-pre-wrap">{contextData.event_context.uncertainty_note}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Context analysis pending review.</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {event && contextData && (contextData.facts.length > 0 || contextData.claims.length > 0) && (
             <div className="mt-4 space-y-3">
               {contextData.facts.length > 0 && (
@@ -397,12 +468,6 @@ export function EventDetailSheet({
                 </div>
               )}
             </div>
-          )}
-          {event && contextLoading && (
-            <p className="mt-4 text-sm text-muted-foreground">Loading context…</p>
-          )}
-          {event && contextError && (
-            <p className="mt-4 text-sm text-destructive">{contextError}</p>
           )}
           {event && (
             <div className="mt-4 space-y-2">

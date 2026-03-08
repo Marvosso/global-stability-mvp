@@ -124,7 +124,7 @@ export async function GET(
   ] = await Promise.all([
     supabaseAdmin
       .from("event_context")
-      .select("event_id, one_paragraph_summary, background, trigger, updated_at")
+      .select("event_id, one_paragraph_summary, background, trigger, updated_at, summary, why_it_matters, likely_driver, uncertainty_note, generated_by, status, created_at, reviewed_by, reviewed_at")
       .eq("event_id", id)
       .maybeSingle(),
     supabaseAdmin

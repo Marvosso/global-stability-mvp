@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../../../../_lib/db";
 import { enforceWorkflowTransition } from "../../../../_lib/workflow";
 import { createAlertsForPublishedEvent } from "../../../../_lib/createAlertsForPublishedEvent";
 import { generateDraftBriefing } from "@/lib/briefing/generateDraftBriefing";
+import { generateEventContextDraft } from "@/lib/context/generateEventContextDraft";
 import { requireReviewer } from "@/lib/rbac";
 import { createRequestLogger } from "@/lib/logger";
 import {
@@ -89,6 +90,22 @@ export async function POST(
     generateDraftBriefing(id).catch((err) =>
       log.error("briefing_generation_failed", { eventId: id, message: err instanceof Error ? err.message : String(err) })
     );
+    generateEventContextDraft(id, { skipIfApproved: true, skipIfRecentDraftMinutes: 10 })
+      .then((r) => {
+        if (!r.ok) {
+          log.error("context_draft_generation_failed", { eventId: id, error: r.error });
+        } else if (r.generated) {
+          log.info("Context draft auto-generated for published event", { eventId: id });
+        } else if (r.skipped) {
+          log.info("Context draft skipped", { eventId: id, reason: r.reason });
+        }
+      })
+      .catch((err) =>
+        log.error("context_draft_generation_failed", {
+          eventId: id,
+          message: err instanceof Error ? err.message : String(err),
+        })
+      );
   }
 
   log.info("Event approved", { eventId: id, nextStatus: decision.nextStatus });

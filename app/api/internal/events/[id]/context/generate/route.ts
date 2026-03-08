@@ -1,7 +1,7 @@
 /**
  * POST /api/internal/events/[id]/context/generate
- * Generates an AI context draft from event + sources and stores it in event_context_drafts.
- * Does not overwrite event_context. Admin/Reviewer only.
+ * Generates a deterministic context draft and upserts it into event_context.
+ * Admin/Reviewer only. No LLM. Uses shared generateEventContextDraft().
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -15,9 +15,7 @@ import {
   internalError,
   responseFromThrown,
 } from "@/lib/apiError";
-import { generateContextDraft } from "@/lib/ai/contextDraft";
-
-const TOP_EXCERPTS = 5;
+import { generateEventContextDraft } from "@/lib/context/generateEventContextDraft";
 
 export async function POST(
   request: NextRequest,
@@ -44,7 +42,7 @@ export async function POST(
 
   const { data: event, error: eventError } = await supabaseAdmin
     .from("events")
-    .select("id, title, summary, category, primary_location, occurred_at")
+    .select("id, status")
     .eq("id", id)
     .single();
 
@@ -53,76 +51,44 @@ export async function POST(
     return notFound("Event not found");
   }
 
-  const { data: sourcesData, error: sourcesError } = await supabaseAdmin
-    .from("event_sources")
-    .select(
-      "raw_excerpt, sources(id, name)"
-    )
-    .eq("event_id", id);
-
-  if (sourcesError) {
-    log.error("Event sources query failed", { error: sourcesError.message, eventId: id });
-    return internalError(sourcesError.message);
+  const status = (event as { status?: string }).status;
+  if (status !== "Published" && status !== "UnderReview") {
+    return badRequest("Event must be Published or UnderReview to generate context");
   }
 
-  const excerpts: string[] = [];
-  for (const row of sourcesData ?? []) {
-    const r = row as unknown as { raw_excerpt?: string | null; sources?: { id: string; name: string | null } | { id: string; name: string | null }[] | null };
-    const src = Array.isArray(r.sources) ? r.sources[0] : r.sources;
-    const name = src?.name?.trim() || "A source";
-    const raw = r.raw_excerpt?.trim();
-    if (raw) {
-      excerpts.push(`[${name}]: ${raw.slice(0, 500)}`);
-    } else {
-      excerpts.push(`[${name}]: cited this event.`);
+  const result = await generateEventContextDraft(id, {
+    skipIfApproved: true,
+    skipIfRecentDraftMinutes: 10,
+  });
+
+  if (!result.ok) {
+    if (result.error === "Event not found") return notFound("Event not found");
+    if (result.error === "Event lacks enough data to generate a useful draft") {
+      return badRequest(result.error);
     }
-    if (excerpts.length >= TOP_EXCERPTS) break;
+    log.error("Context generation failed", { eventId: id, error: result.error });
+    return internalError(result.error);
   }
 
-  const input = {
-    title: (event.title ?? "").trim() || "Event",
-    summary: (event.summary ?? "").trim() || "",
-    sourceExcerpts: excerpts,
-    category: (event.category ?? "").trim() || "Uncategorized",
-    location: event.primary_location ?? null,
-    occurred_at: event.occurred_at ?? null,
-  };
-
-  let draftOutput: { draft: { summary: string; trigger: string | null; background: string; uncertainties: string | null }; model: string };
-  try {
-    draftOutput = await generateContextDraft(input);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Context draft generation failed";
-    log.error("generateContextDraft failed", { eventId: id, message });
-    return internalError(message);
+  if (result.generated) {
+    log.info("Context generated (deterministic)", { eventId: id });
+    return NextResponse.json(
+      {
+        ...result.built,
+        status: "Draft",
+        updated_at: new Date().toISOString(),
+      },
+      { status: 200 }
+    );
   }
 
-  const { draft, model } = draftOutput;
-
-  const { data: inserted, error: insertError } = await supabaseAdmin
-    .from("event_context_drafts")
-    .insert({
-      event_id: id,
-      draft_summary: draft.summary,
-      draft_trigger: draft.trigger,
-      draft_background: draft.background,
-      model,
-    })
-    .select("id, event_id, draft_summary, draft_trigger, draft_background, model, created_at")
-    .single();
-
-  if (insertError) {
-    log.error("event_context_drafts insert failed", { error: insertError.message, eventId: id });
-    return internalError(insertError.message);
-  }
-
-  log.info("Context draft generated", { eventId: id, draftId: inserted?.id });
-
+  log.info("Context generation skipped", { eventId: id, reason: result.reason });
   return NextResponse.json(
     {
-      ...inserted,
-      uncertainties: draft.uncertainties,
+      skipped: true,
+      reason: result.reason,
+      status: "Draft",
     },
-    { status: 201 }
+    { status: 200 }
   );
 }

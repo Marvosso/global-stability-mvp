@@ -67,6 +67,15 @@ type EventContextRow = {
   background: string | null;
   trigger: string | null;
   updated_at: string;
+  summary?: string | null;
+  why_it_matters?: string | null;
+  likely_driver?: string | null;
+  uncertainty_note?: string | null;
+  generated_by?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
 } | null;
 
 type EventClaimRow = {
@@ -199,6 +208,18 @@ export default function ReviewDetailPage({
   const [contextSaveLoading, setContextSaveLoading] = useState(false);
   const [contextSaveError, setContextSaveError] = useState<string | null>(null);
   const [contextSaveSuccess, setContextSaveSuccess] = useState(false);
+  const [contextSummary, setContextSummary] = useState("");
+  const [contextWhyItMatters, setContextWhyItMatters] = useState("");
+  const [contextLikelyDriver, setContextLikelyDriver] = useState("");
+  const [contextUncertaintyNote, setContextUncertaintyNote] = useState("");
+  const [contextGenerateLoading, setContextGenerateLoading] = useState(false);
+  const [contextGenerateError, setContextGenerateError] = useState<string | null>(null);
+  const [contextAnalysisSaveLoading, setContextAnalysisSaveLoading] = useState(false);
+  const [contextAnalysisSaveError, setContextAnalysisSaveError] = useState<string | null>(null);
+  const [contextAnalysisSaveSuccess, setContextAnalysisSaveSuccess] = useState(false);
+  const [contextApproveLoading, setContextApproveLoading] = useState(false);
+  const [contextRejectLoading, setContextRejectLoading] = useState(false);
+  const [contextActionError, setContextActionError] = useState<string | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingError, setBriefingError] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<{
@@ -285,7 +306,19 @@ export default function ReviewDetailPage({
           }))
         : []
     );
-  }, [event?.id, event?.context_background, event?.key_parties, event?.competing_claims]);
+    const ec = event.event_context;
+    if (ec && typeof ec === "object") {
+      setContextSummary(ec.summary ?? "");
+      setContextWhyItMatters(ec.why_it_matters ?? "");
+      setContextLikelyDriver(ec.likely_driver ?? "");
+      setContextUncertaintyNote(ec.uncertainty_note ?? "");
+    } else {
+      setContextSummary("");
+      setContextWhyItMatters("");
+      setContextLikelyDriver("");
+      setContextUncertaintyNote("");
+    }
+  }, [event?.id, event?.context_background, event?.key_parties, event?.competing_claims, event?.event_context]);
 
   useEffect(() => {
     if (!id || !event || !session?.access_token) return;
@@ -498,6 +531,107 @@ export default function ReviewDetailPage({
       setContextSaveError(err instanceof Error ? err.message : "Failed to save context");
     } finally {
       setContextSaveLoading(false);
+    }
+  };
+
+  const handleGenerateContext = async () => {
+    setContextGenerateError(null);
+    setContextActionError(null);
+    setContextGenerateLoading(true);
+    try {
+      const res = await fetch(`/api/internal/events/${id}/context/generate`, {
+        method: "POST",
+        headers: authHeaders,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setContextGenerateError(typeof data?.error === "string" ? data.error : "Failed to generate context draft");
+        return;
+      }
+      fetchEvent();
+      setContextSummary(data.summary ?? "");
+      setContextWhyItMatters(data.why_it_matters ?? "");
+      setContextLikelyDriver(data.likely_driver ?? "");
+      setContextUncertaintyNote(data.uncertainty_note ?? "");
+    } catch (err) {
+      setContextGenerateError(err instanceof Error ? err.message : "Failed to generate context draft");
+    } finally {
+      setContextGenerateLoading(false);
+    }
+  };
+
+  const handleSaveContextAnalysis = async () => {
+    setContextAnalysisSaveError(null);
+    setContextActionError(null);
+    setContextAnalysisSaveSuccess(false);
+    setContextAnalysisSaveLoading(true);
+    try {
+      const res = await fetch(`/api/internal/events/${id}/context`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          summary: contextSummary.trim() || null,
+          why_it_matters: contextWhyItMatters.trim() || null,
+          likely_driver: contextLikelyDriver.trim() || null,
+          uncertainty_note: contextUncertaintyNote.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setContextAnalysisSaveError(
+          typeof data?.error === "string" ? data.error : "Event context not found. Generate a draft first."
+        );
+        return;
+      }
+      setContextAnalysisSaveSuccess(true);
+      fetchEvent();
+      setTimeout(() => setContextAnalysisSaveSuccess(false), 3000);
+    } catch (err) {
+      setContextAnalysisSaveError(err instanceof Error ? err.message : "Failed to save context analysis");
+    } finally {
+      setContextAnalysisSaveLoading(false);
+    }
+  };
+
+  const handleApproveContext = async () => {
+    setContextActionError(null);
+    setContextApproveLoading(true);
+    try {
+      const res = await fetch(`/api/internal/events/${id}/context/approve`, {
+        method: "POST",
+        headers: authHeaders,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setContextActionError(typeof data?.error === "string" ? data.error : "Failed to approve context");
+        return;
+      }
+      fetchEvent();
+    } catch (err) {
+      setContextActionError(err instanceof Error ? err.message : "Failed to approve context");
+    } finally {
+      setContextApproveLoading(false);
+    }
+  };
+
+  const handleRejectContext = async () => {
+    setContextActionError(null);
+    setContextRejectLoading(true);
+    try {
+      const res = await fetch(`/api/internal/events/${id}/context/reject`, {
+        method: "POST",
+        headers: authHeaders,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setContextActionError(typeof data?.error === "string" ? data.error : "Failed to reject context");
+        return;
+      }
+      fetchEvent();
+    } catch (err) {
+      setContextActionError(err instanceof Error ? err.message : "Failed to reject context");
+    } finally {
+      setContextRejectLoading(false);
     }
   };
 
@@ -1095,6 +1229,122 @@ export default function ReviewDetailPage({
           >
             {contextSaveLoading ? "Saving…" : "Save context"}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Context Analysis */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Context Analysis</CardTitle>
+            {event.event_context?.status != null && (
+              <span
+                className={
+                  event.event_context.status === "Approved"
+                    ? "rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-200"
+                    : event.event_context.status === "Rejected"
+                      ? "rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/40 dark:text-red-200"
+                      : "rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                }
+              >
+                {event.event_context.status}
+              </span>
+            )}
+          </div>
+          <CardDescription>
+            Summary, significance, likely driver, and uncertainty. Generate a draft, edit, then approve or reject.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="context_summary">Summary</Label>
+            <textarea
+              id="context_summary"
+              value={contextSummary}
+              onChange={(e) => setContextSummary(e.target.value)}
+              placeholder="Concise restatement of what happened…"
+              rows={3}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="context_why_it_matters">Why this matters</Label>
+            <textarea
+              id="context_why_it_matters"
+              value={contextWhyItMatters}
+              onChange={(e) => setContextWhyItMatters(e.target.value)}
+              placeholder="Likely significance for regional stability or humanitarian impact…"
+              rows={3}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="context_likely_driver">Likely driver</Label>
+            <textarea
+              id="context_likely_driver"
+              value={contextLikelyDriver}
+              onChange={(e) => setContextLikelyDriver(e.target.value)}
+              placeholder="Conservative inferred driver from category and nearby events…"
+              rows={2}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="context_uncertainty_note">Uncertainty note</Label>
+            <textarea
+              id="context_uncertainty_note"
+              value={contextUncertaintyNote}
+              onChange={(e) => setContextUncertaintyNote(e.target.value)}
+              placeholder="Note on confidence and corroboration…"
+              rows={2}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+          {contextGenerateError && (
+            <p className="text-sm text-destructive">{contextGenerateError}</p>
+          )}
+          {contextAnalysisSaveError && (
+            <p className="text-sm text-destructive">{contextAnalysisSaveError}</p>
+          )}
+          {contextAnalysisSaveSuccess && (
+            <p className="text-sm text-green-600 dark:text-green-400">Context analysis saved.</p>
+          )}
+          {contextActionError && (
+            <p className="text-sm text-destructive">{contextActionError}</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleGenerateContext}
+              disabled={contextGenerateLoading}
+            >
+              {contextGenerateLoading ? "Generating…" : "Generate Draft"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSaveContextAnalysis}
+              disabled={contextAnalysisSaveLoading || !event.event_context}
+            >
+              {contextAnalysisSaveLoading ? "Saving…" : "Save Edits"}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleApproveContext}
+              disabled={contextApproveLoading || !event.event_context}
+            >
+              {contextApproveLoading ? "Approving…" : "Approve Context"}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleRejectContext}
+              disabled={contextRejectLoading || !event.event_context}
+            >
+              {contextRejectLoading ? "Rejecting…" : "Reject Context"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

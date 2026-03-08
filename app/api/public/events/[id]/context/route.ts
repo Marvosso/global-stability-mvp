@@ -1,6 +1,8 @@
 /**
  * GET /api/public/events/[id]/context
- * Returns event_context, claims, and facts for a published event only. 404 if not found or not Published.
+ * Returns approved Context Analysis (summary, why_it_matters, likely_driver, uncertainty_note) plus claims and facts.
+ * Only when event is Published. If no approved context, returns 200 with available: false.
+ * Draft and Rejected context are never exposed.
  */
 
 import { supabaseAdmin } from "../../../../_lib/db";
@@ -38,11 +40,16 @@ export async function GET(
     return notFound("Event not found");
   }
 
-  const [{ data: eventContext, error: ctxError }, { data: claims, error: claimsError }, { data: facts, error: factsError }] = await Promise.all([
+  const [
+    { data: approvedContext, error: ctxError },
+    { data: claims, error: claimsError },
+    { data: facts, error: factsError },
+  ] = await Promise.all([
     supabaseAdmin
       .from("event_context")
-      .select("one_paragraph_summary, background, trigger, updated_at")
+      .select("event_id, summary, why_it_matters, likely_driver, uncertainty_note, updated_at")
       .eq("event_id", id)
+      .eq("status", "Approved")
       .maybeSingle(),
     supabaseAdmin
       .from("event_claims")
@@ -66,9 +73,25 @@ export async function GET(
     return internalError(ctxError?.message ?? claimsError?.message ?? factsError?.message ?? "Unknown error");
   }
 
+  const claimsList = claims ?? [];
+  const factsList = facts ?? [];
+
+  if (!approvedContext) {
+    return NextResponse.json({
+      available: false,
+      claims: claimsList,
+      facts: factsList,
+    });
+  }
+
   return NextResponse.json({
-    event_context: eventContext ?? null,
-    claims: claims ?? [],
-    facts: facts ?? [],
+    event_id: approvedContext.event_id,
+    summary: approvedContext.summary ?? null,
+    why_it_matters: approvedContext.why_it_matters ?? null,
+    likely_driver: approvedContext.likely_driver ?? null,
+    uncertainty_note: approvedContext.uncertainty_note ?? null,
+    updated_at: approvedContext.updated_at ?? null,
+    claims: claimsList,
+    facts: factsList,
   });
 }

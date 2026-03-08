@@ -1,12 +1,11 @@
 /**
  * ReliefWeb Disasters API ingestion.
  * Fetches ongoing disasters from the ReliefWeb JSON API (not RSS).
- * Maps disaster type names to Natural Disaster subtypes where possible.
+ * Maps report types into Humanitarian Crisis taxonomy: Food Crisis, Population Displacement, Flood, Drought, Disease Outbreak.
  * API: https://api.reliefweb.int/v1/disasters
  */
 
 import type { IngestItem } from "@/app/api/_lib/validation";
-import type { EventSubtype } from "./genericRss";
 import { supabaseAdmin } from "@/app/api/_lib/db";
 import {
   createDraftEventAndMaybeCandidate,
@@ -17,28 +16,40 @@ import { mapIngestItemToDraftData } from "@/app/api/_lib/processIngestBatch";
 const FEED_KEY = "reliefweb_disasters";
 const SOURCE_NAME = "ReliefWeb Disasters";
 
-const DEFAULT_API_URL =
-  "https://api.reliefweb.int/v1/disasters?appname=global-stability-mvp&limit=50" +
-  "&fields[include][]=title&fields[include][]=date&fields[include][]=country" +
+const DEFAULT_DISASTERS_PATH =
+  "https://api.reliefweb.int/v1/disasters?limit=50" +
+  "&fields[include][]=name&fields[include][]=date&fields[include][]=country" +
   "&fields[include][]=type&fields[include][]=url&fields[include][]=status" +
   "&filter[field]=status&filter[value]=ongoing";
 
-/** Map ReliefWeb disaster type names to valid event_subtype values. */
-function mapDisasterType(typeName: string): EventSubtype | undefined {
+/** Ensure URL has appname parameter; append if missing. */
+function ensureAppnameInUrl(url: string, appname: string): string {
+  const parsed = new URL(url);
+  if (parsed.searchParams.has("appname")) return url;
+  parsed.searchParams.set("appname", appname);
+  return parsed.toString();
+}
+
+const DEFAULT_CATEGORY = "Humanitarian Crisis" as const;
+
+/** Map ReliefWeb report/disaster type names into event taxonomy. Default category: Humanitarian Crisis. */
+function mapReliefWebToTaxonomy(typeName: string): {
+  category: typeof DEFAULT_CATEGORY;
+  subtype: "Food Crisis" | "Population Displacement" | "Flood" | "Drought" | "Disease Outbreak" | undefined;
+} {
   const lower = typeName.toLowerCase();
-  if (lower.includes("flood") || lower.includes("flash flood")) return "Flood";
-  if (lower.includes("cyclone") || lower.includes("hurricane") || lower.includes("typhoon"))
-    return "Cyclone";
-  if (lower.includes("earthquake") || lower.includes("seismic")) return "Earthquake";
-  if (lower.includes("drought")) return "Drought";
-  if (lower.includes("wildfire") || lower.includes("forest fire")) return "Wildfire";
-  return undefined;
+  if (lower.includes("famine") || lower.includes("food security")) return { category: DEFAULT_CATEGORY, subtype: "Food Crisis" };
+  if (lower.includes("displacement")) return { category: DEFAULT_CATEGORY, subtype: "Population Displacement" };
+  if (lower.includes("flood") || lower.includes("flash flood")) return { category: DEFAULT_CATEGORY, subtype: "Flood" };
+  if (lower.includes("drought")) return { category: DEFAULT_CATEGORY, subtype: "Drought" };
+  if (lower.includes("epidemic") || lower.includes("disease outbreak")) return { category: DEFAULT_CATEGORY, subtype: "Disease Outbreak" };
+  return { category: DEFAULT_CATEGORY, subtype: undefined };
 }
 
 type ReliefWebDisaster = {
   id: number;
   fields: {
-    title?: string;
+    name?: string;
     url?: string;
     status?: string;
     date?: { created?: string; event?: string };
@@ -57,10 +68,25 @@ const log = {
 };
 
 export async function ingestReliefWeb(
-  options: { apiUrl?: string } = {}
+  options: { apiUrl?: string; appname?: string } = {}
 ): Promise<{ fetched: number; processed: number; skipped: number }> {
-  const apiUrl =
-    (options.apiUrl ?? process.env.RELIEFWEB_API_URL ?? "").trim() || DEFAULT_API_URL;
+  const appname = (
+    options.appname ?? process.env.RELIEFWEB_APPNAME ?? ""
+  ).trim();
+  if (!appname) {
+    throw new Error(
+      "RELIEFWEB_APPNAME is required for ReliefWeb API requests. Set RELIEFWEB_APPNAME in .env.local (e.g. your approved appname from ReliefWeb)."
+    );
+  }
+
+  const baseUrl = (
+    options.apiUrl ??
+    process.env.RELIEFWEB_API_URL ??
+    ""
+  ).trim();
+  const apiUrl = baseUrl
+    ? ensureAppnameInUrl(baseUrl, appname)
+    : ensureAppnameInUrl(DEFAULT_DISASTERS_PATH, appname);
 
   let runId: string | null = null;
   try {
@@ -96,12 +122,12 @@ export async function ingestReliefWeb(
   const ingestItems: IngestItem[] = disasters
     .map((disaster): IngestItem | null => {
       const fields = disaster.fields;
-      const title = (fields.title ?? "").trim();
+      const title = (fields.name ?? "").trim();
       const sourceUrl = (fields.url ?? "").trim();
       if (!title || !sourceUrl) return null;
 
       const firstType = fields.type?.[0]?.name ?? "";
-      const subtype = mapDisasterType(firstType);
+      const { category, subtype } = mapReliefWebToTaxonomy(firstType);
 
       const countryName = fields.country?.[0]?.name ?? "";
       const location = countryName || undefined;
@@ -117,7 +143,7 @@ export async function ingestReliefWeb(
         published_at: dateStr || undefined,
         occurred_at: dateStr || undefined,
         location,
-        category: "Natural Disaster",
+        category,
         subtype,
         confidence_level: "High",
       } as IngestItem;

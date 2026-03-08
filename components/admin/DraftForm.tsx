@@ -51,6 +51,7 @@ const CATEGORY_SUBTYPES: Partial<
   "Military Posture": ["Battle", "Air Strike", "Border Skirmish"],
   "Diplomatic Confrontation": ["Protest", "Legislation Dispute", "Government Crisis"],
   "Coercive Economic Action": ["Protest", "Legislation Dispute"],
+  "Humanitarian Crisis": ["Food Crisis", "Population Displacement", "Flood", "Drought", "Disease Outbreak"],
 };
 
 const SEVERITY_OPTIONS = [

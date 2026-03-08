@@ -7,6 +7,7 @@ export const event_category = [
   "Diplomatic Confrontation",
   "Coercive Economic Action",
   "Natural Disaster",
+  "Humanitarian Crisis",
 ] as const;
 
 export const event_subtype = [
@@ -22,6 +23,9 @@ export const event_subtype = [
   "Cyclone",
   "Drought",
   "Wildfire",
+  "Food Crisis",
+  "Population Displacement",
+  "Disease Outbreak",
 ] as const;
 
 export const severity_level = ["Low", "Medium", "High", "Critical"] as const;

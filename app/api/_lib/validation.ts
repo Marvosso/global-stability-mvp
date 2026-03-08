@@ -167,6 +167,15 @@ export const eventContextUpdateSchema = z.object({
 
 export type EventContextUpdate = z.infer<typeof eventContextUpdateSchema>;
 
+/** Context Analysis: editable fields on event_context (summary, why_it_matters, likely_driver, uncertainty_note). */
+export const eventContextAnalysisUpdateSchema = z.object({
+  summary: z.string().max(2000).optional().nullable(),
+  why_it_matters: z.string().max(2000).optional().nullable(),
+  likely_driver: z.string().max(1000).optional().nullable(),
+  uncertainty_note: z.string().max(1000).optional().nullable(),
+});
+export type EventContextAnalysisUpdate = z.infer<typeof eventContextAnalysisUpdateSchema>;
+
 // Phase 11C: event_claims / event_facts (Context Engine)
 export const createClaimSchema = z.object({
   claim_text: z.string().min(1).max(10_000),
