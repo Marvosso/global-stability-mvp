@@ -62,15 +62,32 @@ export async function ingestReliefWeb(
   const apiUrl =
     (options.apiUrl ?? process.env.RELIEFWEB_API_URL ?? "").trim() || DEFAULT_API_URL;
 
+  let runId: string | null = null;
+  try {
+    const { data: runRow, error: runInsertErr } = await supabaseAdmin
+      .from("ingestion_runs")
+      .insert({ feed_key: FEED_KEY, items_fetched: 0, processed: 0, skipped: 0, status: "running" })
+      .select("id")
+      .single();
+    runId = runInsertErr ? null : (runRow?.id ?? null);
+  } catch {
+    runId = null;
+  }
+
   const res = await fetch(apiUrl, {
     headers: { "User-Agent": "global-stability-mvp/1.0", "Accept": "application/json" },
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(
-      `ReliefWeb API fetch failed: ${res.status} ${res.statusText} ${body.slice(0, 200)}`
-    );
+    const errMsg = `ReliefWeb API fetch failed: ${res.status} ${res.statusText} ${body.slice(0, 200)}`;
+    if (runId) {
+      await supabaseAdmin
+        .from("ingestion_runs")
+        .update({ finished_at: new Date().toISOString(), status: "error", items_fetched: 0, processed: 0, skipped: 0 })
+        .eq("id", runId);
+    }
+    throw new Error(errMsg);
   }
 
   const json = (await res.json()) as ReliefWebResponse;
@@ -108,6 +125,12 @@ export async function ingestReliefWeb(
     .filter((x): x is IngestItem => x != null);
 
   if (ingestItems.length === 0) {
+    if (runId) {
+      await supabaseAdmin
+        .from("ingestion_runs")
+        .update({ finished_at: new Date().toISOString(), items_fetched: 0, processed: 0, skipped: 0, status: "ok" })
+        .eq("id", runId);
+    }
     return { fetched: 0, processed: 0, skipped: 0 };
   }
 
@@ -177,6 +200,17 @@ export async function ingestReliefWeb(
         .update({ status: "Skipped" })
         .eq("id", inserted.id);
       skipped++;
+    }
+  }
+
+  if (runId) {
+    try {
+      await supabaseAdmin
+        .from("ingestion_runs")
+        .update({ finished_at: new Date().toISOString(), items_fetched: ingestItems.length, processed, skipped, status: "ok" })
+        .eq("id", runId);
+    } catch {
+      // ignore
     }
   }
 
