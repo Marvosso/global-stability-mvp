@@ -3,10 +3,6 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
 
-// #region agent log
-if (typeof fetch === "function") { fetch('http://127.0.0.1:7858/ingest/4ea7f127-3afa-4a64-b2bb-235c0c1420f9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'06fa83'},body:JSON.stringify({sessionId:'06fa83',location:'db.ts:module-load',message:'db module load',data:{hasUrl:Boolean(supabaseUrl),hasKey:Boolean(serviceKey)},hypothesisId:'A',timestamp:Date.now()})}).catch(()=>{}); }
-// #endregion
-
 if (!supabaseUrl || !serviceKey) {
   // These errors will surface at runtime if env is misconfigured.
   // eslint-disable-next-line no-console

@@ -51,11 +51,10 @@ export async function middleware(request: NextRequest) {
     }
 
     const user = await getSupabaseAuthUserForMiddleware(request);
+    // When session is in localStorage only (default Supabase client), middleware sees no cookie.
+    // Allow the request through so the client-side AdminGuard can read the session and redirect to login if needed.
     if (!user) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      url.searchParams.set("redirectTo", pathname);
-      return NextResponse.redirect(url);
+      return NextResponse.next();
     }
 
     // Allow specific user IDs even without app_metadata role (e.g. ADMIN_ALLOW_USER_IDS=uuid1,uuid2)
