@@ -1,9 +1,10 @@
 /**
  * GDELT daily conflict-focused ingestion.
  * Downloads the daily export CSV zip from data.gdeltproject.org, parses it,
- * filters for EventRootCode 10–20 (violence/protests) or GoldsteinScale <= -4,
- * limits to top 50–100 by impact, normalizes to draft format, and POSTs batch to ingest.
- * Noisy; future filtering recommended (see README).
+ * filters strictly for conflict: EventRootCode in [14,15,16,17,18,19,20] or
+ * GoldsteinScale <= -5 or actor mentions Ukraine/Russia/Iran/Israel/Gaza.
+ * Category: 17–20 → Armed Conflict, 14–16 → Political Tension. Confidence Medium.
+ * Top 10–20 by impact use feed_key gdelt_events_live and auto-publish.
  */
 
 import AdmZip from "adm-zip";
@@ -12,10 +13,13 @@ import { processIngestBatch } from "@/app/api/_lib/processIngestBatch";
 import { supabaseAdmin } from "@/app/api/_lib/db";
 
 const FEED_KEY = "gdelt_events";
+const FEED_KEY_LIVE = "gdelt_events_live"; // top 10–20 by impact; auto-published
 const SOURCE_NAME = "GDELT";
 const BASE_URL = "http://data.gdeltproject.org/events";
 const MAX_ITEMS = 100;
 const MIN_ITEMS = 50;
+const AUTO_PUBLISH_TOP_N = 20;
+const CONFLICT_ACTOR_MENTIONS = ["ukraine", "russia", "iran", "israel", "gaza"];
 
 // GDELT 1.0 export.CSV: tab-separated, no header (codebook column indices 0-based)
 const IDX = {
@@ -66,11 +70,28 @@ function sourceUrl(globalEventId: string, sqlDate: string): string {
   return `https://data.gdeltproject.org/events/?date=${sqlDate}&id=${encodeURIComponent(globalEventId)}`;
 }
 
-/** Pass filter: EventRootCode in [10,20] (violence/protests) OR GoldsteinScale <= -4. */
-function passesFilter(eventRootCode: number, goldsteinScale: number): boolean {
-  const rootOk = eventRootCode >= 10 && eventRootCode <= 20;
-  const goldsteinOk = goldsteinScale <= -4;
-  return rootOk || goldsteinOk;
+/**
+ * Pass filter: strict conflict — EventRootCode in [14,15,16,17,18,19,20] or
+ * GoldsteinScale <= -5 or actor1/actor2 mention Ukraine, Russia, Iran, Israel, Gaza.
+ * EventRootCode map (for category): 14,15,16 → Political Tension; 17,18,19,20 → Armed Conflict.
+ */
+function passesFilter(
+  eventRootCode: number,
+  goldsteinScale: number,
+  actor1: string,
+  actor2: string
+): boolean {
+  const conflictRootCodes = [14, 15, 16, 17, 18, 19, 20];
+  const rootOk = conflictRootCodes.includes(eventRootCode);
+  const goldsteinOk = Number.isFinite(goldsteinScale) && goldsteinScale <= -5;
+  const combined = `${(actor1 || "").toLowerCase()} ${(actor2 || "").toLowerCase()}`;
+  const actorOk = CONFLICT_ACTOR_MENTIONS.some((m) => combined.includes(m));
+  return rootOk || goldsteinOk || actorOk;
+}
+
+/** EventRootCode >= 14 → Armed Conflict (17–20) or Political Tension (14–16). */
+function categoryFromEventRootCode(eventRootCode: number): "Armed Conflict" | "Political Tension" {
+  return eventRootCode >= 17 && eventRootCode <= 20 ? "Armed Conflict" : "Political Tension";
 }
 
 /** Impact score for sorting (lower Goldstein = more negative; more mentions = higher impact). */
@@ -139,8 +160,10 @@ export async function ingestGDELTDaily(
     const eventRootCode = Math.floor(parseNum(getCol(row, IDX.EventRootCode)));
     const goldsteinScale = parseNum(getCol(row, IDX.GoldsteinScale));
     const numMentions = Math.floor(parseNum(getCol(row, IDX.NumMentions))) || 0;
+    const actor1 = getCol(row, IDX.Actor1Name);
+    const actor2 = getCol(row, IDX.Actor2Name);
 
-    if (!passesFilter(eventRootCode, goldsteinScale)) continue;
+    if (!passesFilter(eventRootCode, goldsteinScale, actor1, actor2)) continue;
 
     rows.push({ row, eventRootCode, goldsteinScale, numMentions });
   }
@@ -150,7 +173,7 @@ export async function ingestGDELTDaily(
 
   const ingestItems: IngestItem[] = [];
 
-  for (const { row, eventRootCode, numMentions } of selected) {
+  selected.forEach(({ row, eventRootCode, numMentions }, index) => {
     const globalEventId = getCol(row, IDX.GlobaleventID);
     const sqlDate = getCol(row, IDX.SQLDATE);
     const actor1 = getCol(row, IDX.Actor1Name);
@@ -171,11 +194,12 @@ export async function ingestGDELTDaily(
 
     const srcUrl = sourceUrl(globalEventId || crypto.randomUUID(), sqlDate || yyyymmdd);
 
-    // EventRootCode 17–20 = Material/Verbal Conflict → Armed Conflict; 10–16 = cooperation → Political Tension.
-    const category = eventRootCode >= 17 && eventRootCode <= 20 ? "Armed Conflict" : "Political Tension";
+    const category = categoryFromEventRootCode(eventRootCode);
+    const isTopImpact = index < AUTO_PUBLISH_TOP_N;
+    const feedKey = isTopImpact ? FEED_KEY_LIVE : FEED_KEY;
 
     ingestItems.push({
-      feed_key: FEED_KEY,
+      feed_key: feedKey,
       source_name: SOURCE_NAME,
       source_url: srcUrl,
       title: title.slice(0, 500),
@@ -186,7 +210,7 @@ export async function ingestGDELTDaily(
       category,
       raw: { event_root_code: eventRootCode, num_mentions: numMentions },
     });
-  }
+  });
 
   if (ingestItems.length === 0) {
     return { fetched: 0, processed: 0, skipped: 0 };

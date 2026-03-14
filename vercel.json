@@ -2,6 +2,7 @@
   "crons": [
     { "path": "/api/cron/usgs", "schedule": "*/15 * * * *" },
     { "path": "/api/cron/gdacs", "schedule": "0 * * * *" },
-    { "path": "/api/cron/gdelt", "schedule": "0 8 * * *" }
+    { "path": "/api/cron/gdelt", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/acled", "schedule": "0 9 * * *" }
   ]
 }

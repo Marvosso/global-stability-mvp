@@ -35,6 +35,8 @@ const FEEDS = [
   { feed_key: "usgs_eq", label: "USGS Earthquakes" },
   { feed_key: "gdacs_rss", label: "GDACS Disasters" },
   { feed_key: "gdelt", label: "GDELT Events" },
+  { feed_key: "gdelt_events", label: "GDELT Daily (conflict)" },
+  { feed_key: "acled_conflicts", label: "ACLED (Ukraine/Israel/Iran)" },
   { feed_key: "crisiswatch", label: "CrisisWatch" },
   { feed_key: "state_dept_advisories", label: "State Dept Advisories" },
   { feed_key: "reliefweb_disasters", label: "ReliefWeb Disasters" },

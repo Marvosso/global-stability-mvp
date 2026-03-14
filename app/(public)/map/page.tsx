@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { EventDetailSheet } from "@/components/public/EventDetailSheet";
+import { EventsInRegionPanel } from "@/components/public/EventsInRegionPanel";
 import { HeatingUpPanel } from "@/components/public/HeatingUpPanel";
 import { MapFilters } from "@/components/public/MapFilters";
 import { MapLegend } from "@/components/public/MapLegend";
@@ -77,6 +78,10 @@ function MapPageContent() {
   const [centerOn, setCenterOn] = useState<{ lng: number; lat: number; zoom?: number } | null>(null);
   const [showEscalationRiskLayer, setShowEscalationRiskLayer] = useState(false);
   const [escalationRiskData, setEscalationRiskData] = useState<Array<{ region_code: string; risk_score: number; risk_level: string }> | null>(null);
+  const [regionPanelOpen, setRegionPanelOpen] = useState(false);
+  const [regionEvents, setRegionEvents] = useState<PublicMapItem[]>([]);
+  const [regionLabel, setRegionLabel] = useState("Selected area");
+  const [regionError, setRegionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -384,6 +389,46 @@ function MapPageContent() {
     setDrawerOpen(true);
   };
 
+  const handleRegionClick = useCallback(
+    (lngLat: { lng: number; lat: number }) => {
+      setRegionError(null);
+      try {
+        const delta = 2;
+        const minLng = lngLat.lng - delta;
+        const maxLng = lngLat.lng + delta;
+        const minLat = lngLat.lat - delta;
+        const maxLat = lngLat.lat + delta;
+        const inBbox: PublicMapItem[] = [];
+        for (const item of timelineFilteredMapItems) {
+          const coords = getEventCoordinates(item);
+          if (!coords) continue;
+          const [lng, lat] = coords;
+          if (lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat) {
+            inBbox.push(item);
+          }
+        }
+        inBbox.sort((a, b) => {
+          const ta = a.occurred_at ? new Date(a.occurred_at).getTime() : 0;
+          const tb = b.occurred_at ? new Date(b.occurred_at).getTime() : 0;
+          return tb - ta;
+        });
+        setRegionEvents(inBbox);
+        setRegionLabel(`±${delta}° area`);
+        setRegionPanelOpen(true);
+      } catch (err) {
+        setRegionError(err instanceof Error ? err.message : "Failed to load events in region");
+        setRegionEvents([]);
+        setRegionPanelOpen(true);
+      }
+    },
+    [timelineFilteredMapItems]
+  );
+
+  const handleSelectEventFromRegionPanel = (item: PublicMapItem) => {
+    setRegionPanelOpen(false);
+    fetchAndShowMapItem(item);
+  };
+
   const handleSelectEventFromList = (event: PublicEvent) => {
     setSelectedEvent(event);
     setSelectedIncident(null);
@@ -597,6 +642,7 @@ function MapPageContent() {
               showEscalationRiskLayer={showEscalationRiskLayer}
               onMarkerClick={handleMarkerClick}
               onEscalationClick={handleEscalationClick}
+              onRegionClick={handleRegionClick}
               centerOn={centerOn}
               onCentered={() => setCenterOn(null)}
             />
@@ -613,7 +659,7 @@ function MapPageContent() {
               />
               {!loading && !error && (
                 <div className="rounded-md border border-border bg-background/95 px-3 py-1.5 text-xs text-muted-foreground shadow backdrop-blur">
-                  Total: {filteredMapItems.length} | Shown: {timelineFilteredMapItems.length} | Mapped:{" "}
+                  Total: {mapItems.length} | Shown: {timelineFilteredMapItems.length} | Mapped:{" "}
                   {mapItemsWithCoords.length} | No location: {mapItemsWithoutLocation.length}
                 </div>
               )}
@@ -624,9 +670,10 @@ function MapPageContent() {
             <PublicMapLeaflet
               events={mapItemsWithCoords}
               onMarkerClick={handleMarkerClick}
+              onRegionClick={handleRegionClick}
             />
             <div className="absolute bottom-4 left-4 z-20 rounded-md border border-border bg-background/95 px-3 py-1.5 text-xs text-muted-foreground shadow backdrop-blur">
-              Using Leaflet (no Mapbox token). Total: {filteredMapItems.length} | Mapped: {mapItemsWithCoords.length}
+              Using Leaflet (no Mapbox token). Total: {mapItems.length} | Mapped: {mapItemsWithCoords.length}
             </div>
           </>
         )}
@@ -641,7 +688,7 @@ function MapPageContent() {
             {error}
           </div>
         )}
-        {!loading && !error && filteredMapItems.length === 0 && (
+        {!loading && !error && mapItems.length === 0 && (
           <div className="absolute left-4 right-4 top-4 z-20 rounded-md border border-border bg-background/95 px-4 py-3 text-sm shadow backdrop-blur">
             No published events in the last 7 days. Try adjusting filters or check back later.
           </div>
@@ -653,6 +700,14 @@ function MapPageContent() {
         Confidence based on source reliability and corroboration count.
       </footer>
 
+      <EventsInRegionPanel
+        open={regionPanelOpen}
+        onOpenChange={setRegionPanelOpen}
+        title={regionLabel}
+        events={regionEvents}
+        error={regionError}
+        onSelectEvent={handleSelectEventFromRegionPanel}
+      />
       <EventDetailSheet
         open={drawerOpen}
         onOpenChange={handleSheetOpenChange}

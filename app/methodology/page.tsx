@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
   title: "Methodology | GeoStability",
-  description: "How GeoStability ingests, deduplicates, and publishes crisis events from USGS, GDACS, ReliefWeb, and GDELT.",
+  description: "How GeoStability ingests, deduplicates, and publishes crisis events from USGS, GDACS, ReliefWeb, GDELT, and ACLED.",
 };
 
 export default function MethodologyPage() {
@@ -36,9 +36,10 @@ export default function MethodologyPage() {
             <li><strong className="text-foreground">USGS</strong> — Earthquakes; working. Auto-published, high confidence.</li>
             <li><strong className="text-foreground">GDACS</strong> — Natural disasters (cyclones, floods, etc.); working. Auto-published, high confidence.</li>
             <li><strong className="text-foreground">ReliefWeb</strong> — Humanitarian disasters; migrating to v2 API.</li>
-            <li><strong className="text-foreground">GDELT</strong> — Conflict and protest events from daily export; in progress. Noisy; low/medium confidence.</li>
-            <li><strong className="text-foreground">ACLED</strong> — Armed conflict data; pending approval.</li>
+            <li><strong className="text-foreground">GDELT</strong> — Conflict data (Ukraine, Iran, Israel, etc.) from daily export; filtered for EventRootCode 14–20 and actor mentions. Top-impact events auto-published (medium confidence).</li>
+            <li><strong className="text-foreground">ACLED</strong> — Armed conflict (beta). Ukraine, Israel, Iran; last 7 days. Auto-published with category Armed Conflict. Requires ACLED API token (myACLED).</li>
           </ul>
+          <p className="mt-2 text-sm font-medium text-foreground">Conflicts are now live (GDELT + ACLED beta).</p>
         </section>
 
         <section className="mb-8">
@@ -47,10 +48,10 @@ export default function MethodologyPage() {
             Ingest → Dedupe → Under Review → Manual or auto publish.
           </p>
           <ol className="list-inside list-decimal space-y-2 text-sm text-muted-foreground">
-            <li><strong className="text-foreground">Ingest</strong> — Scripts and cron jobs fetch from each feed (USGS, GDACS, ReliefWeb, GDELT).</li>
+            <li><strong className="text-foreground">Ingest</strong> — Scripts and cron jobs fetch from each feed (USGS, GDACS, ReliefWeb, GDELT, ACLED).</li>
             <li><strong className="text-foreground">Dedupe</strong> — Events are matched by source URL and similarity to avoid duplicates.</li>
             <li><strong className="text-foreground">Under Review</strong> — New events enter as drafts with status Under Review (except trusted feeds that auto-publish).</li>
-            <li><strong className="text-foreground">Publish</strong> — Reviewers approve or reject; USGS and GDACS can auto-publish. Published events appear on the map and public list.</li>
+            <li><strong className="text-foreground">Publish</strong> — Reviewers approve or reject; USGS, GDACS, GDELT conflict (top-impact), and ACLED auto-publish. Published events appear on the map and public list.</li>
           </ol>
         </section>
 
@@ -66,7 +67,7 @@ export default function MethodologyPage() {
         <section className="mb-8">
           <h3 className="mb-3 text-lg font-medium">Plans</h3>
           <ul className="list-inside list-disc space-y-2 text-sm text-muted-foreground">
-            <li>Add ACLED once approved for armed conflict coverage.</li>
+            <li>ACLED integration (beta) is live; expand countries or date range as needed.</li>
             <li>Improve clustering so related events are grouped into incidents more reliably.</li>
             <li>Refine GDELT filters and confidence rules.</li>
           </ul>

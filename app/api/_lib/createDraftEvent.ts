@@ -330,21 +330,28 @@ async function findOrCreateIncident(
 }
 
 /**
- * Auto-publish rules for trusted disaster feeds: USGS, GDACS, FIRMS with High confidence.
- * Feed_key takes precedence (usgs_eq, gdacs_rss); otherwise domain/source_name is used.
- * Optional: a feed_registry table with auto_publish boolean could centralize this later.
+ * Auto-publish rules: USGS, GDACS, FIRMS (High confidence); GDELT conflict live + ACLED (Medium).
+ * Feed_key takes precedence; otherwise domain/source_name is used.
  */
-function getAutoPublishRule(data: CreateDraftEventData): "usgs" | "gdacs" | "firms" | null {
-  if (data.confidence_level !== "High") return null;
-
+function getAutoPublishRule(
+  data: CreateDraftEventData
+): "usgs" | "gdacs" | "firms" | "gdelt_live" | "acled" | null {
   const feedKey = (data.feed_key ?? "").trim().toLowerCase();
-  if (feedKey === "usgs_eq" || feedKey === "usgs") return "usgs";
-  if (feedKey === "gdacs_rss" || feedKey === "gdacs") return "gdacs";
+  const confidence = data.confidence_level;
 
-  const domain = data.source_url ? normalizeDomainFromUrl(data.source_url) : null;
-  if (domain?.includes("usgs.gov")) return "usgs";
-  if (domain?.includes("gdacs.org")) return "gdacs";
-  if (data.source_name?.toLowerCase().includes("firms")) return "firms";
+  if (confidence === "High") {
+    if (feedKey === "usgs_eq" || feedKey === "usgs") return "usgs";
+    if (feedKey === "gdacs_rss" || feedKey === "gdacs") return "gdacs";
+    const domain = data.source_url ? normalizeDomainFromUrl(data.source_url) : null;
+    if (domain?.includes("usgs.gov")) return "usgs";
+    if (domain?.includes("gdacs.org")) return "gdacs";
+    if (data.source_name?.toLowerCase().includes("firms")) return "firms";
+  }
+
+  if (confidence === "Medium") {
+    if (feedKey === "gdelt_events_live") return "gdelt_live";
+    if (feedKey === "acled_conflicts" || feedKey === "acled") return "acled";
+  }
 
   return null;
 }

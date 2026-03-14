@@ -11,6 +11,8 @@ import type { MapMarkerItem } from "./WorldMap";
 type PublicMapLeafletProps = {
   events: MapMarkerItem[];
   onMarkerClick: (item: MapMarkerItem) => void;
+  /** When user clicks map background (not a marker), called with click lng/lat for region event list */
+  onRegionClick?: (lngLat: { lng: number; lat: number }) => void;
 };
 
 function escapeHtml(s: string): string {
@@ -22,10 +24,12 @@ function escapeHtml(s: string): string {
 }
 
 /** Leaflet fallback when NEXT_PUBLIC_MAPBOX_TOKEN is not set. Uses ingestion coords (primary_location). */
-export function PublicMapLeaflet({ events, onMarkerClick }: PublicMapLeafletProps) {
+export function PublicMapLeaflet({ events, onMarkerClick, onRegionClick }: PublicMapLeafletProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  const onRegionClickRef = useRef(onRegionClick);
+  onRegionClickRef.current = onRegionClick;
   type LeafletModule = typeof import("leaflet");
   const LRef = useRef<LeafletModule | null>(null);
 
@@ -53,6 +57,16 @@ export function PublicMapLeaflet({ events, onMarkerClick }: PublicMapLeafletProp
       L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
       }).addTo(map);
+      map.on("click", (e: L.LeafletMouseEvent) => {
+        const target = (e as unknown as { originalEvent?: Event }).originalEvent?.target;
+        if (target && typeof (target as Element).closest === "function" && (target as Element).closest(".leaflet-marker-icon"))
+          return;
+        const cb = onRegionClickRef.current;
+        if (cb) {
+          const { lat, lng } = e.latlng;
+          cb({ lng, lat });
+        }
+      });
       mapRef.current = map;
     })();
     return () => {

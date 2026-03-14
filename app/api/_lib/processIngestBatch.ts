@@ -17,8 +17,10 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   const isFIRMS = key.includes("firms");
   const isGDELT = key.includes("gdelt");
   const isGdeltEvents = key === "gdelt_events";
+  const isGdeltEventsLive = key === "gdelt_events_live"; // conflict-focused; auto-publish top N
   const isCrisisWatch = key.includes("crisiswatch");
   const isReliefWeb = key.includes("reliefweb");
+  const isACLED = key.includes("acled");
 
   const summary = (item.summary ?? item.title).trim().slice(0, 5000) || item.title;
 
@@ -28,11 +30,11 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
       ? new Date(rawDate).toISOString()
       : new Date().toISOString();
 
-  // Confidence: USGS/GDACS/FIRMS/CrisisWatch = High; ReliefWeb = Medium; GDELT daily = Low or Medium (by source/corroboration); other GDELT = Medium.
+  // Confidence: USGS/GDACS/FIRMS/CrisisWatch = High; ReliefWeb/ACLED = Medium; GDELT daily (incl. gdelt_events_live) = Medium.
   const confidenceLevel =
     isUSGS || isGDACS || isFIRMS || isCrisisWatch
       ? "High"
-      : isReliefWeb
+      : isReliefWeb || isACLED || isGdeltEventsLive
         ? "Medium"
         : isGdeltEvents
           ? (() => {
@@ -92,8 +94,16 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
     };
   }
 
-  if (isGDELT || isGdeltEvents) {
-    // GDELT: category from item (set by gdeltDaily from EventRootCode: 17–20 Armed Conflict, else Political Tension).
+  if (isACLED) {
+    return {
+      ...base,
+      category: (item.category ?? "Armed Conflict") as CreateDraftEventData["category"],
+      subtype: (item.subtype ?? "Battle") as CreateDraftEventData["subtype"],
+    };
+  }
+
+  if (isGDELT || isGdeltEvents || isGdeltEventsLive) {
+    // GDELT: category from item (set by gdeltDaily from EventRootCode: 14–20 map).
     const category =
       item.category ??
       (() => {

@@ -100,6 +100,8 @@ type WorldMapProps = {
   centerOn?: { lng: number; lat: number; zoom?: number } | null;
   /** Called after flyTo(centerOn) completes; use to clear centerOn state */
   onCentered?: () => void;
+  /** When user clicks on map background or heat/colored area (not on a marker), called with click lng/lat for region event list */
+  onRegionClick?: (lngLat: { lng: number; lat: number }) => void;
 };
 
 function buildEventsGeoJSON(
@@ -270,6 +272,13 @@ function buildEscalationRingsGeoJSON(
   return { type: "FeatureCollection", features };
 }
 
+const MARKER_LAYER_IDS = [
+  EVENTS_LAYER_ID,
+  EVENTS_CLUSTERS_LAYER_ID,
+  ESCALATION_RINGS_LAYER_ID,
+  ESCALATIONS_LAYER_ID,
+];
+
 export function WorldMap({
   accessToken,
   events,
@@ -283,6 +292,7 @@ export function WorldMap({
   initialBounds,
   centerOn,
   onCentered,
+  onRegionClick,
 }: WorldMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -292,12 +302,14 @@ export function WorldMap({
   const countriesGeoJSONRef = useRef<{ type: "FeatureCollection"; features: GeoJSONFeature[] } | null>(null);
   const onMarkerClickRef = useRef(onMarkerClick);
   const onEscalationClickRef = useRef(onEscalationClick);
+  const onRegionClickRef = useRef(onRegionClick);
   const startTimesRef = useRef<Map<string, number>>(new Map());
   eventsRef.current = events;
   escalationsRef.current = escalations;
   crisisHeatmapRef.current = crisisHeatmap;
   onMarkerClickRef.current = onMarkerClick;
   onEscalationClickRef.current = onEscalationClick;
+  onRegionClickRef.current = onRegionClick;
 
   useEffect(() => {
     if (!containerRef.current || !accessToken) return;
@@ -603,6 +615,14 @@ export function WorldMap({
       });
       map.on("mouseleave", ESCALATIONS_LAYER_ID, () => {
         map.getCanvas().style.cursor = "default";
+      });
+
+      map.on("click", (e) => {
+        const features = map.queryRenderedFeatures(e.point);
+        const hitMarker = features.some((f) => f.layer?.id && MARKER_LAYER_IDS.includes(f.layer.id));
+        if (!hitMarker && onRegionClickRef.current) {
+          onRegionClickRef.current({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+        }
       });
     });
 

@@ -13,6 +13,8 @@ import { ingestCrisisWatch } from "@/lib/ingest/crisiswatch";
 import { ingestWHO } from "@/lib/ingest/who";
 import { ingestStateDept } from "@/lib/ingest/stateDept";
 import { ingestReliefWeb } from "@/lib/ingest/reliefweb";
+import { ingestGDELTDaily } from "@/lib/ingest/gdeltDaily";
+import { ingestACLED } from "@/lib/ingest/acled";
 import { forbidden, internalError, unauthorized } from "@/lib/apiError";
 
 export const maxDuration = 60;
@@ -39,6 +41,8 @@ const FEEDS: { feed_key: string; label: string; run: () => Promise<{ fetched: nu
   { feed_key: "usgs_eq", label: "USGS", run: () => ingestUSGS() },
   { feed_key: "gdacs_rss", label: "GDACS", run: () => ingestGDACS() },
   { feed_key: "gdelt", label: "GDELT", run: () => ingestGDELT() },
+  { feed_key: "gdelt_events", label: "GDELT Daily", run: () => ingestGDELTDaily() },
+  { feed_key: "acled_conflicts", label: "ACLED", run: () => ingestACLED() },
   { feed_key: "crisiswatch", label: "CrisisWatch", run: () => ingestCrisisWatch() },
   { feed_key: "who_outbreaks", label: "WHO", run: () => ingestWHO() },
   { feed_key: "state_dept_advisories", label: "State Dept", run: () => ingestStateDept() },

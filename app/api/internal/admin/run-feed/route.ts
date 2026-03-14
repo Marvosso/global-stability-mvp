@@ -13,12 +13,13 @@ import { ingestCrisisWatch } from "@/lib/ingest/crisiswatch";
 import { ingestStateDept } from "@/lib/ingest/stateDept";
 import { ingestReliefWeb } from "@/lib/ingest/reliefweb";
 import { ingestGDELTDaily } from "@/lib/ingest/gdeltDaily";
+import { ingestACLED } from "@/lib/ingest/acled";
 import { badRequest, forbidden, internalError, unauthorized } from "@/lib/apiError";
 
 // Allow up to 60s on Vercel Pro (each feed makes external HTTP calls + DB writes)
 export const maxDuration = 60;
 
-const SUPPORTED_FEEDS = ["usgs_eq", "usgs", "gdacs_rss", "gdacs", "gdelt", "gdelt_events", "crisiswatch", "state_dept_advisories", "reliefweb_disasters"] as const;
+const SUPPORTED_FEEDS = ["usgs_eq", "usgs", "gdacs_rss", "gdacs", "gdelt", "gdelt_events", "gdelt_events_live", "acled_conflicts", "crisiswatch", "state_dept_advisories", "reliefweb_disasters"] as const;
 
 const FEED_TIMEOUT_MS = 50_000;
 
@@ -164,9 +165,12 @@ export async function POST(request: NextRequest) {
       }).catch(() => {});
       // #endregion
       result = await withTimeout(ingestReliefWeb(), "ReliefWeb");
-    } else if (feedKey === "gdelt_events") {
+    } else if (feedKey === "gdelt_events" || feedKey === "gdelt_events_live") {
       currentIngest = "GDELT Daily";
       result = await withTimeout(ingestGDELTDaily(), "GDELT Daily");
+    } else if (feedKey === "acled_conflicts") {
+      currentIngest = "ACLED";
+      result = await withTimeout(ingestACLED(), "ACLED");
     } else {
       currentIngest = "CrisisWatch";
       // #region agent log
