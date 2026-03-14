@@ -330,8 +330,8 @@ async function findOrCreateIncident(
 }
 
 /**
- * Auto-publish rules: USGS, GDACS, FIRMS (High confidence); GDELT conflict live + ACLED (Medium).
- * Feed_key takes precedence; otherwise domain/source_name is used.
+ * Auto-publish rules for trusted feeds: USGS, GDACS (High); GDELT events + ACLED (Medium).
+ * Explicit rule: feed_key in ['usgs_eq','gdacs_rss','gdelt_events','acled'] → status = Published.
  */
 function getAutoPublishRule(
   data: CreateDraftEventData
@@ -348,8 +348,8 @@ function getAutoPublishRule(
     if (data.source_name?.toLowerCase().includes("firms")) return "firms";
   }
 
-  if (confidence === "Medium") {
-    if (feedKey === "gdelt_events_live") return "gdelt_live";
+  if (confidence === "Medium" || confidence === "High") {
+    if (feedKey === "gdelt_events_live" || feedKey === "gdelt_events") return "gdelt_live";
     if (feedKey === "acled_conflicts" || feedKey === "acled") return "acled";
   }
 

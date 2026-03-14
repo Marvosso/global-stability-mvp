@@ -44,6 +44,12 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (pathname.startsWith("/admin")) {
+    // Temporary bypass: allow unauthenticated admin access (set DISABLE_ADMIN_AUTH=true in env)
+    const disableAdminAuth = process.env.DISABLE_ADMIN_AUTH === "true" || process.env.DISABLE_ADMIN_AUTH === "1";
+    if (disableAdminAuth) {
+      return NextResponse.next();
+    }
+
     const user = await getSupabaseAuthUserForMiddleware(request);
     if (!user) {
       const url = request.nextUrl.clone();
@@ -51,6 +57,16 @@ export async function middleware(request: NextRequest) {
       url.searchParams.set("redirectTo", pathname);
       return NextResponse.redirect(url);
     }
+
+    // Allow specific user IDs even without app_metadata role (e.g. ADMIN_ALLOW_USER_IDS=uuid1,uuid2)
+    const allowList = process.env.ADMIN_ALLOW_USER_IDS;
+    if (allowList && typeof allowList === "string") {
+      const ids = allowList.split(",").map((id) => id.trim()).filter(Boolean);
+      if (ids.includes(user.id)) {
+        return NextResponse.next();
+      }
+    }
+
     const internalRole = getInternalRoleFromUser(user);
     if (internalRole !== "Admin" && internalRole !== "Reviewer") {
       const url = request.nextUrl.clone();

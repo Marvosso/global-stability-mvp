@@ -30,21 +30,15 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
       ? new Date(rawDate).toISOString()
       : new Date().toISOString();
 
-  // Confidence: USGS/GDACS/FIRMS/CrisisWatch = High; ReliefWeb/ACLED = Medium; GDELT daily (incl. gdelt_events_live) = Medium.
+  // Confidence: USGS/GDACS/FIRMS/CrisisWatch = High; ReliefWeb/ACLED/GDELT events = Medium (trusted feeds auto-publish).
   const confidenceLevel =
     isUSGS || isGDACS || isFIRMS || isCrisisWatch
       ? "High"
-      : isReliefWeb || isACLED || isGdeltEventsLive
+      : isReliefWeb || isACLED || isGdeltEventsLive || isGdeltEvents
         ? "Medium"
-        : isGdeltEvents
-          ? (() => {
-              const raw = item.raw as { num_mentions?: number } | undefined;
-              const mentions = raw?.num_mentions;
-              return (typeof mentions === "number" && mentions > 1 ? "Medium" : "Low") as CreateDraftEventData["confidence_level"];
-            })()
-          : isGDELT
-            ? "Medium"
-            : DEFAULT_CONFIDENCE;
+        : isGDELT
+          ? "Medium"
+          : DEFAULT_CONFIDENCE;
 
   const base: Omit<CreateDraftEventData, "subtype"> = {
     title: item.title.trim().slice(0, 500),
