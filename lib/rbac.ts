@@ -1,5 +1,4 @@
 import type { User } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/app/api/_lib/db";
 
@@ -90,8 +89,7 @@ async function getSupabaseAuthUser(request: NextRequest): Promise<User | null> {
   if (accessToken) tokenSource = 'header';
 
   if (!accessToken) {
-    const cookieStore = await cookies();
-    const all = cookieStore.getAll();
+    const all = request.cookies.getAll();
     const authCookie = all.find((c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token"));
     if (authCookie?.value) {
       try {
