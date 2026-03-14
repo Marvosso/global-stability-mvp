@@ -36,10 +36,10 @@ export default function MethodologyPage() {
             <li><strong className="text-foreground">USGS</strong> — Earthquakes; working. Auto-published, high confidence.</li>
             <li><strong className="text-foreground">GDACS</strong> — Natural disasters (cyclones, floods, etc.); working. Auto-published, high confidence.</li>
             <li><strong className="text-foreground">ReliefWeb</strong> — Humanitarian disasters; migrating to v2 API.</li>
-            <li><strong className="text-foreground">GDELT</strong> — Conflict data (Ukraine, Iran, Israel, etc.) from daily export; filtered for EventRootCode 14–20 and actor mentions. Top-impact events auto-published (medium confidence).</li>
+            <li><strong className="text-foreground">GDELT</strong> — Conflict data (Ukraine, Russia, Iran, Israel, Gaza) from daily export; filtered for EventRootCode 14–20 or GoldsteinScale ≤ -5 or actor keywords. GDELT conflicts now auto-published (beta). Category: 14–15 Political Tension, 16–20 Armed Conflict; medium confidence.</li>
             <li><strong className="text-foreground">ACLED</strong> — Armed conflict (beta). Ukraine, Israel, Iran; last 7 days. Auto-published with category Armed Conflict. Requires ACLED API token (myACLED).</li>
           </ul>
-          <p className="mt-2 text-sm font-medium text-foreground">Conflicts are now live (GDELT + ACLED beta).</p>
+          <p className="mt-2 text-sm font-medium text-foreground">Conflicts are now live (GDELT + ACLED beta). GDELT conflicts now auto-published (beta).</p>
         </section>
 
         <section className="mb-8">

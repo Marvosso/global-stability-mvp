@@ -25,7 +25,7 @@ export function MapLegend({
           <p>Color = category: red Armed Conflict, orange Political Tension, blue Natural Disaster, purple Humanitarian.</p>
           <p>Size = severity (Low → Critical). Opacity = confidence.</p>
           <p>Orange circle = escalation cluster. Click marker for popup; click again for details.</p>
-          <p>Click colored area (heat/blobs or map background) for event list in that region.</p>
+          <p>Click colored area for event list.</p>
         </div>
         {onEscalationRiskLayerChange != null && (
           <div className="space-y-2 border-t border-border/80 pt-2">

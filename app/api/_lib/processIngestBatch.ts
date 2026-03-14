@@ -103,13 +103,13 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   }
 
   if (isGDELT || isGdeltEvents || isGdeltEventsLive) {
-    // GDELT: category from item (set by gdeltDaily from EventRootCode: 14–20 map).
+    // GDELT: category from item (gdeltDaily map: 14–15 Political Tension, 16–20 Armed Conflict).
     const category =
       item.category ??
       (() => {
         const raw = item.raw as { event_root_code?: number } | undefined;
         const code = raw?.event_root_code;
-        if (typeof code === "number" && code >= 17 && code <= 20) return "Armed Conflict" as const;
+        if (typeof code === "number" && code >= 16 && code <= 20) return "Armed Conflict" as const;
         return "Political Tension" as const;
       })();
     return {

@@ -49,7 +49,7 @@ export function EventsInRegionPanel({
           )}
           {!error && events.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              No detailed events in this cluster yet.
+              Cluster detected but no detailed events published yet – check admin.
             </p>
           )}
           {!error && events.length > 0 && (

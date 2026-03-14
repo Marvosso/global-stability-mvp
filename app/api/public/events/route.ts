@@ -16,6 +16,13 @@ function geoJsonToLatLng(geo: unknown): string | null {
   return `${lat},${lng}`;
 }
 
+/** Normalize primary_location so client getEventCoordinates() can parse it (e.g. GeoJSON → "lat,lng" string). */
+function normalizePrimaryLocationForResponse(primaryLocation: unknown): string | null {
+  if (primaryLocation == null) return null;
+  if (typeof primaryLocation === "string") return primaryLocation;
+  return geoJsonToLatLng(primaryLocation);
+}
+
 /** Fallback when get_public_map_items RPC is missing (migration not run). Queries incidents + events directly. */
 async function fetchMapItemsFallback(
   limit: number,
@@ -44,7 +51,7 @@ async function fetchMapItemsFallback(
         subtype: e.subtype,
         severity: e.severity,
         confidence_level: e.confidence_level,
-        primary_location: e.primary_location,
+        primary_location: normalizePrimaryLocationForResponse(e.primary_location),
         occurred_at: e.occurred_at,
         source_count: 1,
         country_code: e.country_code,
@@ -70,7 +77,7 @@ async function fetchMapItemsFallback(
         subtype: e.subtype,
         severity: e.severity,
         confidence_level: e.confidence_level,
-        primary_location: e.primary_location,
+        primary_location: normalizePrimaryLocationForResponse(e.primary_location),
         occurred_at: e.occurred_at,
         source_count: 1,
         country_code: e.country_code,
@@ -99,7 +106,7 @@ async function fetchMapItemsFallback(
       subtype: i.subtype,
       severity: i.severity,
       confidence_level: i.confidence_level,
-      primary_location: geoJsonToLatLng(i.primary_location) ?? (i.primary_location as string | null),
+      primary_location: normalizePrimaryLocationForResponse(i.primary_location),
       occurred_at: i.occurred_at,
       source_count: countMap.get(i.id) ?? 0,
       country_code: i.country_code,
@@ -112,7 +119,7 @@ async function fetchMapItemsFallback(
       subtype: e.subtype,
       severity: e.severity,
       confidence_level: e.confidence_level,
-      primary_location: e.primary_location,
+      primary_location: normalizePrimaryLocationForResponse(e.primary_location),
       occurred_at: e.occurred_at,
       source_count: 1,
       country_code: e.country_code,
@@ -218,7 +225,10 @@ export async function GET(request: NextRequest) {
     return internalError(error.message);
   }
 
-  let list = (data ?? []) as PublicMapItem[];
+  let list = ((data ?? []) as PublicMapItem[]).map((row) => ({
+    ...row,
+    primary_location: normalizePrimaryLocationForResponse(row.primary_location),
+  }));
 
   if (tierEventIds != null && tierIncidentIds != null) {
     list = list.filter((row) => {

@@ -68,7 +68,6 @@ function MapPageContent() {
   const [heatingUpCountries, setHeatingUpCountries] = useState<HeatingUpCountry[]>([]);
   const [eventDrivers, setEventDrivers] = useState<HeatingUpEventDriver[]>([]);
   const [heatmap, setHeatmap] = useState<Array<{ country_code: string; stability_score: number; delta_24h: number | null }>>([]);
-  const [crisisHeatmap, setCrisisHeatmap] = useState<CrisisHeatmapPoint[]>([]);
   const [loadingHeatingUp, setLoadingHeatingUp] = useState(true);
   const [selectedHeatingUpCountry, setSelectedHeatingUpCountry] = useState<string | null>(null);
   const [escalations, setEscalations] = useState<EscalationMapItem[]>([]);
@@ -145,22 +144,6 @@ function MapPageContent() {
       })
       .catch(() => {
         if (!cancelled) setHeatmap([]);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/public/crisis-heatmap")
-      .then((res) => {
-        if (!res.ok) return [];
-        return res.json();
-      })
-      .then((data) => {
-        if (!cancelled) setCrisisHeatmap(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {
-        if (!cancelled) setCrisisHeatmap([]);
       });
     return () => { cancelled = true; };
   }, []);
@@ -323,6 +306,27 @@ function MapPageContent() {
     [timelineFilteredMapItems]
   );
 
+  const crisisHeatmap = useMemo((): CrisisHeatmapPoint[] => {
+    const severityWeight: Record<string, number> = {
+      Critical: 4,
+      High: 3,
+      Medium: 2,
+      Low: 1,
+    };
+    return mapItemsWithCoords.map((item) => {
+      const coords = getEventCoordinates(item);
+      if (!coords) return null;
+      const [lng, lat] = coords;
+      const intensity = severityWeight[item.severity ?? ""] ?? 1;
+      return {
+        lat,
+        lng,
+        intensity,
+        category: item.category ?? "Other",
+      };
+    }).filter((p): p is CrisisHeatmapPoint => p != null);
+  }, [mapItemsWithCoords]);
+
   const sidebarMapItemList = useMemo(() => {
     if (!Array.isArray(timelineFilteredMapItems) || timelineFilteredMapItems.length === 0) return [];
     return [...timelineFilteredMapItems].sort((a, b) => {
@@ -393,7 +397,7 @@ function MapPageContent() {
     (lngLat: { lng: number; lat: number }) => {
       setRegionError(null);
       try {
-        const delta = 2;
+        const delta = 1.5;
         const minLng = lngLat.lng - delta;
         const maxLng = lngLat.lng + delta;
         const minLat = lngLat.lat - delta;

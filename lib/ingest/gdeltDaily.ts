@@ -3,8 +3,8 @@
  * Downloads the daily export CSV zip from data.gdeltproject.org, parses it,
  * filters strictly for conflict: EventRootCode in [14,15,16,17,18,19,20] or
  * GoldsteinScale <= -5 or actor mentions Ukraine/Russia/Iran/Israel/Gaza.
- * Category: 17–20 → Armed Conflict, 14–16 → Political Tension. Confidence Medium.
- * Top 10–20 by impact use feed_key gdelt_events_live and auto-publish.
+ * Category: 14–15 → Political Tension, 16–20 → Armed Conflict. Confidence Medium.
+ * All conflict-filtered items use feed_key gdelt_events_live and auto-publish.
  */
 
 import AdmZip from "adm-zip";
@@ -13,12 +13,11 @@ import { processIngestBatch } from "@/app/api/_lib/processIngestBatch";
 import { supabaseAdmin } from "@/app/api/_lib/db";
 
 const FEED_KEY = "gdelt_events";
-const FEED_KEY_LIVE = "gdelt_events_live"; // top 10–20 by impact; auto-published
+const FEED_KEY_LIVE = "gdelt_events_live"; // conflict items (EventRootCode >= 14 or Goldstein <= -5 or actor keywords); auto-published
 const SOURCE_NAME = "GDELT";
 const BASE_URL = "http://data.gdeltproject.org/events";
 const MAX_ITEMS = 100;
 const MIN_ITEMS = 50;
-const AUTO_PUBLISH_TOP_N = 20;
 const CONFLICT_ACTOR_MENTIONS = ["ukraine", "russia", "iran", "israel", "gaza"];
 
 // GDELT 1.0 export.CSV: tab-separated, no header (codebook column indices 0-based)
@@ -89,9 +88,9 @@ function passesFilter(
   return rootOk || goldsteinOk || actorOk;
 }
 
-/** EventRootCode >= 14 → Armed Conflict (17–20) or Political Tension (14–16). */
+/** EventRootCode: 14–15 = Political Tension, 16–20 = Armed Conflict. */
 function categoryFromEventRootCode(eventRootCode: number): "Armed Conflict" | "Political Tension" {
-  return eventRootCode >= 17 && eventRootCode <= 20 ? "Armed Conflict" : "Political Tension";
+  return eventRootCode >= 16 && eventRootCode <= 20 ? "Armed Conflict" : "Political Tension";
 }
 
 /** Impact score for sorting (lower Goldstein = more negative; more mentions = higher impact). */
@@ -173,7 +172,7 @@ export async function ingestGDELTDaily(
 
   const ingestItems: IngestItem[] = [];
 
-  selected.forEach(({ row, eventRootCode, numMentions }, index) => {
+  selected.forEach(({ row, eventRootCode, numMentions }) => {
     const globalEventId = getCol(row, IDX.GlobaleventID);
     const sqlDate = getCol(row, IDX.SQLDATE);
     const actor1 = getCol(row, IDX.Actor1Name);
@@ -195,11 +194,8 @@ export async function ingestGDELTDaily(
     const srcUrl = sourceUrl(globalEventId || crypto.randomUUID(), sqlDate || yyyymmdd);
 
     const category = categoryFromEventRootCode(eventRootCode);
-    const isTopImpact = index < AUTO_PUBLISH_TOP_N;
-    const feedKey = isTopImpact ? FEED_KEY_LIVE : FEED_KEY;
-
     ingestItems.push({
-      feed_key: feedKey,
+      feed_key: FEED_KEY_LIVE,
       source_name: SOURCE_NAME,
       source_url: srcUrl,
       title: title.slice(0, 500),
