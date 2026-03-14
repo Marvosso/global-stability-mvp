@@ -16,7 +16,9 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   const isGDACS = key.includes("gdacs");
   const isFIRMS = key.includes("firms");
   const isGDELT = key.includes("gdelt");
+  const isGdeltEvents = key === "gdelt_events";
   const isCrisisWatch = key.includes("crisiswatch");
+  const isReliefWeb = key.includes("reliefweb");
 
   const summary = (item.summary ?? item.title).trim().slice(0, 5000) || item.title;
 
@@ -26,16 +28,33 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
       ? new Date(rawDate).toISOString()
       : new Date().toISOString();
 
+  // Confidence: USGS/GDACS/FIRMS/CrisisWatch = High; ReliefWeb = Medium; GDELT daily = Low or Medium (by source/corroboration); other GDELT = Medium.
+  const confidenceLevel =
+    isUSGS || isGDACS || isFIRMS || isCrisisWatch
+      ? "High"
+      : isReliefWeb
+        ? "Medium"
+        : isGdeltEvents
+          ? (() => {
+              const raw = item.raw as { num_mentions?: number } | undefined;
+              const mentions = raw?.num_mentions;
+              return (typeof mentions === "number" && mentions > 1 ? "Medium" : "Low") as CreateDraftEventData["confidence_level"];
+            })()
+          : isGDELT
+            ? "Medium"
+            : DEFAULT_CONFIDENCE;
+
   const base: Omit<CreateDraftEventData, "subtype"> = {
     title: item.title.trim().slice(0, 500),
     summary,
     category: item.category ?? DEFAULT_CATEGORY,
     severity: (isUSGS ? "Low" : isGDACS ? "Medium" : DEFAULT_SEVERITY) as CreateDraftEventData["severity"],
-    confidence_level: (isUSGS || isGDACS || isFIRMS || isCrisisWatch ? "High" : isGDELT ? "Medium" : DEFAULT_CONFIDENCE) as CreateDraftEventData["confidence_level"],
+    confidence_level: confidenceLevel as CreateDraftEventData["confidence_level"],
     primary_classification: DEFAULT_CLASSIFICATION,
     source_url: item.source_url,
     source_name: item.source_name,
     occurred_at: occurredAt,
+    ...(item.feed_key && { feed_key: item.feed_key }),
     ...(item.location?.trim() && { primary_location: item.location.trim().slice(0, 500) }),
   };
 
@@ -48,6 +67,7 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   }
 
   if (isGDACS) {
+    // GDACS: category Natural Disaster (or from item); subtype from alert type / item.
     let subtype = item.subtype;
     if (subtype === undefined) {
       const text = `${item.title} ${summary}`.toLowerCase();
@@ -59,7 +79,7 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
     }
     return {
       ...base,
-      category: item.category ?? "Natural Disaster",
+      category: (item.category ?? "Natural Disaster") as CreateDraftEventData["category"],
       subtype,
     };
   }
@@ -72,10 +92,19 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
     };
   }
 
-  if (isGDELT) {
+  if (isGDELT || isGdeltEvents) {
+    // GDELT: category from item (set by gdeltDaily from EventRootCode: 17–20 Armed Conflict, else Political Tension).
+    const category =
+      item.category ??
+      (() => {
+        const raw = item.raw as { event_root_code?: number } | undefined;
+        const code = raw?.event_root_code;
+        if (typeof code === "number" && code >= 17 && code <= 20) return "Armed Conflict" as const;
+        return "Political Tension" as const;
+      })();
     return {
       ...base,
-      category: (item.category ?? DEFAULT_CATEGORY) as CreateDraftEventData["category"],
+      category: category as CreateDraftEventData["category"],
       subtype: (item.subtype ?? "Protest") as CreateDraftEventData["subtype"],
     };
   }

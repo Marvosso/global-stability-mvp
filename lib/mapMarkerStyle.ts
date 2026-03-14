@@ -48,3 +48,17 @@ export const CONFIDENCE_OPACITY_SAMPLES = [
   { label: "Medium", opacity: 0.75 },
   { label: "High", opacity: 1 },
 ] as const;
+
+/** Category → hex color for map markers (red=Armed Conflict, orange=Political Tension, blue=Natural Disaster, etc.). */
+const CATEGORY_COLORS: Record<string, string> = {
+  "Armed Conflict": "#dc2626",
+  "Political Tension": "#ea580c",
+  "Natural Disaster": "#2563eb",
+  "Humanitarian Crisis": "#7c3aed",
+  "Other": "#6b7280",
+};
+
+export function getCategoryColor(category: string | null | undefined): string {
+  if (!category) return CATEGORY_COLORS["Other"] ?? "#6b7280";
+  return CATEGORY_COLORS[category] ?? CATEGORY_COLORS["Other"] ?? "#6b7280";
+}

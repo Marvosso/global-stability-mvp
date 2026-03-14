@@ -14,6 +14,14 @@ import {
   getConfidenceOpacity,
 } from "@/lib/mapMarkerStyle";
 
+function escapeHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const EVENTS_SOURCE_ID = "events-source";
 const EVENTS_LAYER_ID = "events-circles";
 const EVENTS_CLUSTERS_LAYER_ID = "events-clusters";
@@ -47,6 +55,12 @@ type FeatureProperties = {
   eventId: string;
   radius: number;
   confidenceOpacity: number;
+  category: string | null;
+  title: string | null;
+  severity: string | null;
+  confidenceLevel: string | null;
+  occurredAt: string | null;
+  sourceCount: number;
 };
 
 export type EscalationMapItem = {
@@ -103,6 +117,8 @@ function buildEventsGeoJSON(
       const coords = getEventCoordinates(event);
       if (!coords) return null;
       const level = getSeverityLevel(event.severity ?? "");
+      const title = "title" in event ? (event.title ?? null) : null;
+      const sourceCount = "source_count" in event ? Number((event as { source_count?: number }).source_count ?? 0) : 0;
       return {
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: coords },
@@ -110,6 +126,12 @@ function buildEventsGeoJSON(
           eventId: event.id,
           radius: getRadiusForLevel(level),
           confidenceOpacity: getConfidenceOpacity(event.confidence_level ?? undefined),
+          category: ("category" in event ? event.category : null) ?? null,
+          title,
+          severity: event.severity ?? null,
+          confidenceLevel: event.confidence_level ?? null,
+          occurredAt: ("occurred_at" in event ? event.occurred_at : null) ?? null,
+          sourceCount,
         },
       };
     })
@@ -386,7 +408,19 @@ export function WorldMap({
         filter: ["!", ["has", "point_count"]],
         paint: {
           "circle-radius": ["get", "radius"],
-          "circle-color": "#2563eb",
+          "circle-color": [
+            "match",
+            ["get", "category"],
+            "Armed Conflict",
+            "#dc2626",
+            "Political Tension",
+            "#ea580c",
+            "Natural Disaster",
+            "#2563eb",
+            "Humanitarian Crisis",
+            "#7c3aed",
+            "#6b7280",
+          ],
           "circle-opacity": ["get", "confidenceOpacity"],
           "circle-stroke-width": 1,
           "circle-stroke-color": "#fff",
@@ -455,10 +489,33 @@ export function WorldMap({
         const feats = map.queryRenderedFeatures(e.point, {
           layers: [EVENTS_LAYER_ID],
         });
-        const eventId = feats[0]?.properties?.eventId;
+        const props = feats[0]?.properties;
+        const eventId = props?.eventId as string | undefined;
         if (eventId) {
           const event = eventsRef.current.find((ev) => ev.id === eventId);
-          if (event) onMarkerClickRef.current(event);
+          if (event) {
+            const title = (props?.title ?? "Event") as string;
+            const severity = (props?.severity ?? "—") as string;
+            const confidenceLevel = (props?.confidenceLevel ?? "—") as string;
+            const occurredAt = (props?.occurredAt ?? null) as string | null;
+            const sourceCount = Number(props?.sourceCount ?? 0);
+            const dateStr = occurredAt
+              ? new Date(occurredAt).toLocaleDateString(undefined, {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })
+              : "—";
+            const sourcesStr = sourceCount > 0 ? `${sourceCount} source(s)` : "—";
+            const confColor = confidenceLevel === "High" ? "#059669" : confidenceLevel === "Medium" ? "#d97706" : "#dc2626";
+            const confStyle = `display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:500;background:${confColor}20;color:${confColor}`;
+            const popup = new mapboxgl.Popup({ maxWidth: "280px", closeButton: true })
+              .setLngLat(e.lngLat)
+              .setHTML(
+                `<div class="p-1 text-left text-sm"><div class="font-medium">${escapeHtml(title)}</div><div class="mt-1 text-muted-foreground">Severity: ${escapeHtml(severity)} · Confidence: <span style="${confStyle}">${escapeHtml(confidenceLevel)}</span></div><div class="mt-0.5 text-muted-foreground">${escapeHtml(dateStr)} · ${sourcesStr}</div></div>`
+              )
+              .addTo(map);
+            onMarkerClickRef.current(event);
+          }
         }
       });
       map.getCanvas().style.cursor = "default";

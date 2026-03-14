@@ -22,8 +22,9 @@ export function MapLegend({
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
         <div className="space-y-2 text-xs text-muted-foreground">
+          <p>Color = category: red Armed Conflict, orange Political Tension, blue Natural Disaster, purple Humanitarian.</p>
           <p>Size = severity (Low → Critical). Opacity = confidence.</p>
-          <p>Orange circle = escalation cluster. Click to see events.</p>
+          <p>Orange circle = escalation cluster. Click marker for popup; click again for details.</p>
         </div>
         {onEscalationRiskLayerChange != null && (
           <div className="space-y-2 border-t border-border/80 pt-2">

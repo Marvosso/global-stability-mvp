@@ -10,6 +10,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfidenceBadge } from "@/components/ui/confidence-badge";
+import { CategoryBadge } from "@/components/ui/category-badge";
 
 type PublicEvent = {
   id: string;
@@ -55,7 +57,13 @@ export default function HomePage() {
       })
       .then((data) => {
         if (cancelled) return;
-        setEvents(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        list.sort((a, b) => {
+          const ta = a.occurred_at || a.created_at ? new Date(a.occurred_at || a.created_at).getTime() : 0;
+          const tb = b.occurred_at || b.created_at ? new Date(b.occurred_at || b.created_at).getTime() : 0;
+          return tb - ta;
+        });
+        setEvents(list);
       })
       .catch((err) => {
         if (!cancelled)
@@ -73,8 +81,11 @@ export default function HomePage() {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-          <h1 className="text-xl font-semibold">Global Stability</h1>
+          <h1 className="text-xl font-semibold">GeoStability</h1>
           <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/methodology">Methodology</Link>
+            </Button>
             <Button variant="default" size="sm" asChild>
               <Link href="/map">Open global map</Link>
             </Button>
@@ -88,6 +99,11 @@ export default function HomePage() {
       <main className="mx-auto max-w-3xl px-4 py-6">
         <h2 className="mb-6 text-lg font-medium text-muted-foreground">
           Published events
+          {!loading && !error && (
+            <span className="ml-2 font-normal text-muted-foreground">
+              ({events.length})
+            </span>
+          )}
         </h2>
 
         {loading && (
@@ -137,7 +153,7 @@ export default function HomePage() {
                       {ev.title?.trim() || "Untitled"}
                     </CardTitle>
                     <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                      <span>{ev.category}</span>
+                      <CategoryBadge category={ev.category} />
                       {ev.subtype && (
                         <>
                           <span aria-hidden>·</span>
@@ -146,6 +162,8 @@ export default function HomePage() {
                       )}
                       <span aria-hidden>·</span>
                       <span>{ev.severity}</span>
+                      <span aria-hidden>·</span>
+                      <ConfidenceBadge level={ev.confidence_level} />
                       <span aria-hidden>·</span>
                       <span>
                         {ev.occurred_at
@@ -170,6 +188,12 @@ export default function HomePage() {
             ))}
           </ul>
         )}
+
+        <footer className="mt-12 border-t border-border pt-6 text-center text-xs text-muted-foreground">
+          <Link href="/methodology" className="underline hover:text-foreground">Methodology</Link>
+          {" · "}
+          Confidence based on source reliability and corroboration count.
+        </footer>
       </main>
     </div>
   );

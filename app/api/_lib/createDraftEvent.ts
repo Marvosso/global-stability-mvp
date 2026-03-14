@@ -330,11 +330,16 @@ async function findOrCreateIncident(
 }
 
 /**
- * Auto-publish rules for trusted feeds: USGS, GDACS, FIRMS with High confidence.
- * Returns the matched rule name or null if no rule matches.
+ * Auto-publish rules for trusted disaster feeds: USGS, GDACS, FIRMS with High confidence.
+ * Feed_key takes precedence (usgs_eq, gdacs_rss); otherwise domain/source_name is used.
+ * Optional: a feed_registry table with auto_publish boolean could centralize this later.
  */
 function getAutoPublishRule(data: CreateDraftEventData): "usgs" | "gdacs" | "firms" | null {
   if (data.confidence_level !== "High") return null;
+
+  const feedKey = (data.feed_key ?? "").trim().toLowerCase();
+  if (feedKey === "usgs_eq" || feedKey === "usgs") return "usgs";
+  if (feedKey === "gdacs_rss" || feedKey === "gdacs") return "gdacs";
 
   const domain = data.source_url ? normalizeDomainFromUrl(data.source_url) : null;
   if (domain?.includes("usgs.gov")) return "usgs";
@@ -439,6 +444,7 @@ export async function createDraftEventAndMaybeCandidate(
     primary_location: data.primary_location ?? null,
     country_code,
     admin1,
+    ...(data.feed_key != null && data.feed_key !== "" && { feed_key: data.feed_key }),
     incident_id: incidentResult?.incidentId ?? null,
     ...(incidentResult?.matchScore != null && { match_score: incidentResult.matchScore }),
     ...(incidentResult && "suggestedIncidentId" in incidentResult && incidentResult.suggestedIncidentId && {
@@ -492,15 +498,26 @@ export async function createDraftEventAndMaybeCandidate(
   await recalculateEventConfidence(event.id);
 
   if (event.status === "Published" && autoPublishRule) {
+    console.info("[createDraftEvent] auto-published", {
+      eventId: event.id,
+      rule: autoPublishRule,
+      feed_key: data.feed_key ?? undefined,
+    });
     try {
       await createAlertsForPublishedEvent(event.id);
-    } catch {
-      // Do not block on alert creation failure
+    } catch (err) {
+      console.error("[createDraftEvent] createAlertsForPublishedEvent failed", {
+        eventId: event.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     try {
       await logAutoPublished(supabaseAdmin, { eventId: event.id, rule: autoPublishRule });
-    } catch {
-      // Do not block on audit failure
+    } catch (err) {
+      console.error("[createDraftEvent] logAutoPublished failed", {
+        eventId: event.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

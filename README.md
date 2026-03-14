@@ -60,6 +60,7 @@ Set these in `.env.local` (and in CI/deploy for scheduled runs):
    - **GDACS**: Fetches `GDACS_RSS_URL`, normalizes items (`feed_key: "gdacs_rss"`, `source_name: "GDACS"`), POSTs batch to `/api/internal/ingest`. Exits with code `0` on success, `1` on fetch/parse/API error. Logs if RSS returns HTML or 0 items.
    - **USGS**: Fetches USGS GeoJSON (all_day or all_hour; `USGS_GEOJSON_URL`), normalizes features (`feed_key: "usgs_eq"`, `source_name: "USGS"`, `source_url`, title, summary "M {mag} - {place}", `occurred_at` from time ms, `location` from geometry), POSTs batch to `/api/internal/ingest`.
    - **ReliefWeb**: Fetches `RELIEFWEB_RSS_URL`, dedupes via Supabase `ingestion_items`, inserts new rows, POSTs each new item to the ingest API, updates status. Requires Supabase env vars.
+   - **GDELT daily** (`npm run ingest:gdelt-daily`): Downloads yesterday’s GDELT daily export CSV zip from `http://data.gdeltproject.org/events/YYYYMMDD.export.CSV.zip`, filters rows by EventRootCode [10–20] or GoldsteinScale ≤ -4, limits to 50–100 highest-impact events, normalizes to draft format (`feed_key: "gdelt_events"`, confidence Low), and POSTs batch to `/api/internal/ingest`. **This feed is noisy; future filtering/tuning is recommended.**
 
 ### Schedule ingestion with GitHub Actions
 
@@ -83,6 +84,7 @@ Cron routes run fetch+normalize in-process and POST to the internal ingest API. 
 
 - **`GET /api/cron/usgs`** — USGS earthquakes. Returns `{ fetched, processed, skipped, feed_key }`.
 - **`GET /api/cron/gdacs`** — GDACS disasters. Requires `GDACS_RSS_URL`.
+- **`GET /api/cron/gdelt`** — GDELT daily conflict-focused pull (runs at 8 AM UTC). Downloads yesterday’s export CSV zip, filters and normalizes, POSTs batch to ingest. **Noisy; future filtering recommended.**
 
 Each cron request **must** include the header `x-cron-key: <CRON_SECRET>` (or `Authorization: Bearer <CRON_SECRET>`). Without it, the route returns 401.
 
@@ -104,13 +106,15 @@ Each cron request **must** include the header `x-cron-key: <CRON_SECRET>` (or `A
    {
      "crons": [
        { "path": "/api/cron/usgs", "schedule": "*/15 * * * *" },
-       { "path": "/api/cron/gdacs", "schedule": "0 * * * *" }
+       { "path": "/api/cron/gdacs", "schedule": "0 * * * *" },
+       { "path": "/api/cron/gdelt", "schedule": "0 8 * * *" }
      ]
    }
    ```
 
    - USGS: every 15 minutes
    - GDACS: every 60 minutes (hourly)
+   - GDELT daily: once per day at 8:00 UTC
 
 3. **Cron auth** — Configure your cron invoker to send `x-cron-key: <CRON_SECRET>` on each request. Vercel Cron may send `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is set; both are accepted.
 
@@ -125,6 +129,9 @@ curl -H "x-cron-key: YOUR_CRON_SECRET" "http://localhost:3000/api/cron/usgs"
 
 # Run GDACS cron
 curl -H "x-cron-key: YOUR_CRON_SECRET" "http://localhost:3000/api/cron/gdacs"
+
+# Run GDELT daily cron
+curl -H "x-cron-key: YOUR_CRON_SECRET" "http://localhost:3000/api/cron/gdelt"
 ```
 
 Expected response: `{ "fetched": N, "processed": P, "skipped": S, "feed_key": "usgs_eq" }` (or `gdacs_rss`).

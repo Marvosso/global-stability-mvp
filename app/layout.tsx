@@ -3,7 +3,12 @@ import "./globals.css";
 import { SessionProvider } from "@/components/auth/SessionProvider";
 
 export const metadata: Metadata = {
-  title: "Global Stability MVP",
+  title: {
+    default: "GeoStability - Real-Time Global Crisis Map",
+    template: "%s | GeoStability",
+  },
+  description:
+    "Real-time global crisis map: natural disasters, conflict, and humanitarian events from USGS, GDACS, ReliefWeb, and GDELT. Explore published events and methodology.",
 };
 
 export default function RootLayout({

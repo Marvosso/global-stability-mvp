@@ -37,6 +37,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </Link>
           </Button>
           <Button variant="ghost" className="justify-start" asChild>
+            <Link href="/admin/review" onClick={onClose}>
+              Review
+            </Link>
+          </Button>
+          <Button variant="ghost" className="justify-start" asChild>
             <Link href="/admin/drafts/new" onClick={onClose}>
               Create Draft
             </Link>

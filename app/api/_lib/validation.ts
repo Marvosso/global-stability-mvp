@@ -42,6 +42,7 @@ export const createDraftEventSchema = z.object({
   requires_dual_review: z.boolean().optional(),
   source_url: z.string().url().optional(),
   source_name: z.string().max(200).optional(),
+  feed_key: z.string().max(50).optional(),
   actors: z
     .array(
       z.object({
@@ -89,7 +90,8 @@ export const publicEventsQuerySchema = z.object({
   tier: reliabilityTierEnum.optional(),
   region: z.string().min(1).max(50).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional().default(20),
-  offset: z.coerce.number().int().min(0).optional().default(0)
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  days: z.coerce.number().int().min(1).max(90).optional(),
 });
 
 export const reviewEventSchema = z.object({

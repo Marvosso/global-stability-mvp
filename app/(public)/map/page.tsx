@@ -40,6 +40,14 @@ const WorldMap = dynamic(
   { ssr: false }
 );
 
+const PublicMapLeaflet = dynamic(
+  () =>
+    import("@/components/public/PublicMapLeaflet").then((mod) => ({
+      default: mod.PublicMapLeaflet,
+    })),
+  { ssr: false }
+);
+
 function MapPageContent() {
   const searchParams = useSearchParams();
   const eventIdFromUrl = searchParams.get("eventId");
@@ -74,7 +82,7 @@ function MapPageContent() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch("/api/public/events?limit=200&offset=0")
+    fetch("/api/public/events?limit=500&offset=0&days=7")
       .then((res) => {
         if (!res.ok) throw new Error("Failed to load events");
         return res.json();
@@ -407,8 +415,8 @@ function MapPageContent() {
   };
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="absolute left-0 right-0 top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border/80 bg-background/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="flex h-screen flex-col touch-manipulation">
+      <header className="absolute left-0 right-0 top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border/80 bg-background/95 px-3 py-2 sm:px-4 sm:py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <h1 className="text-lg font-semibold">Map</h1>
         <div className="flex items-center gap-2">
           {user && <AlertsBell />}
@@ -422,6 +430,12 @@ function MapPageContent() {
               No location ({mapItemsWithoutLocation.length})
             </Button>
           )}
+          <Link
+            href="/methodology"
+            className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+          >
+            Methodology
+          </Link>
           <Link
             href="/"
             className="text-sm text-muted-foreground underline-offset-4 hover:underline"
@@ -570,7 +584,7 @@ function MapPageContent() {
             )}
           </div>
         </aside>
-        <div className="relative flex-1 min-h-0">
+        <div className="relative flex-1 min-h-0 w-full min-w-0">
         {accessToken ? (
           <>
             <WorldMap
@@ -606,9 +620,15 @@ function MapPageContent() {
             </div>
           </>
         ) : (
-          <div className="flex h-full items-center justify-center bg-muted text-sm text-muted-foreground">
-            Map unavailable. Set NEXT_PUBLIC_MAPBOX_TOKEN.
-          </div>
+          <>
+            <PublicMapLeaflet
+              events={mapItemsWithCoords}
+              onMarkerClick={handleMarkerClick}
+            />
+            <div className="absolute bottom-4 left-4 z-20 rounded-md border border-border bg-background/95 px-3 py-1.5 text-xs text-muted-foreground shadow backdrop-blur">
+              Using Leaflet (no Mapbox token). Total: {filteredMapItems.length} | Mapped: {mapItemsWithCoords.length}
+            </div>
+          </>
         )}
 
         {loading && (
@@ -622,12 +642,16 @@ function MapPageContent() {
           </div>
         )}
         {!loading && !error && filteredMapItems.length === 0 && (
-          <div className="absolute left-4 right-4 top-4 z-20 rounded-md border border-border bg-background/95 px-4 py-2 text-sm shadow backdrop-blur">
-            No published events.
+          <div className="absolute left-4 right-4 top-4 z-20 rounded-md border border-border bg-background/95 px-4 py-3 text-sm shadow backdrop-blur">
+            No published events in the last 7 days. Try adjusting filters or check back later.
           </div>
         )}
         </div>
       </div>
+
+      <footer className="absolute bottom-0 left-0 right-0 z-10 border-t border-border/80 bg-background/95 px-3 py-1.5 text-center text-[11px] text-muted-foreground backdrop-blur">
+        Confidence based on source reliability and corroboration count.
+      </footer>
 
       <EventDetailSheet
         open={drawerOpen}

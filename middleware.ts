@@ -20,6 +20,8 @@ function isPremiumPath(pathname: string): boolean {
 
 export const config = {
   matcher: [
+    "/admin",
+    "/admin/:path*",
     "/api/public/:path*",
     "/api/alerts/:path*",
     "/api/user/alerts/:path*",
@@ -40,6 +42,23 @@ function getClientKey(request: NextRequest): string {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+
+  if (pathname.startsWith("/admin")) {
+    const user = await getSupabaseAuthUserForMiddleware(request);
+    if (!user) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("redirectTo", pathname);
+      return NextResponse.redirect(url);
+    }
+    const internalRole = getInternalRoleFromUser(user);
+    if (internalRole !== "Admin" && internalRole !== "Reviewer") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next();
+  }
 
   if (pathname.startsWith("/api/public/")) {
     const key = getClientKey(request);

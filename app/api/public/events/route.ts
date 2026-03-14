@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
     log.warn("Invalid query", { message: msg });
     return badRequest(msg);
   }
-  const { tier, region, limit, offset } = parseResult.data;
+  const { tier, region, limit, offset, days } = parseResult.data;
   const log = createRequestLogger({ requestId });
 
   let tierEventIds: Set<string> | null = null;
@@ -174,46 +174,13 @@ export async function GET(request: NextRequest) {
 
   const fetchLimit = region != null && region.trim() !== "" ? 500 : limit;
   const fetchOffset = region != null && region.trim() !== "" ? 0 : offset;
-  // #region agent log
-  fetch("http://127.0.0.1:7858/ingest/4ea7f127-3afa-4a64-b2bb-235c0c1420f9", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "06fa83" },
-    body: JSON.stringify({
-      sessionId: "06fa83",
-      location: "app/api/public/events/route.ts:preRPC",
-      message: "About to call get_public_map_items",
-      data: { fetchLimit, fetchOffset, tier, region },
-      timestamp: Date.now(),
-      hypothesisId: "B",
-    }),
-  }).catch(() => {});
-  // #endregion
+
   const { data, error } = await supabaseAdmin.rpc("get_public_map_items", {
     p_limit: fetchLimit,
     p_offset: fetchOffset,
   });
 
   if (error) {
-    // #region agent log
-    fetch("http://127.0.0.1:7858/ingest/4ea7f127-3afa-4a64-b2bb-235c0c1420f9", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "06fa83" },
-      body: JSON.stringify({
-        sessionId: "06fa83",
-        location: "app/api/public/events/route.ts:RPC",
-        message: "get_public_map_items RPC failed",
-        data: {
-          errorMessage: error.message,
-          errorCode: error.code,
-          errorDetails: error.details,
-          errorHint: error.hint,
-          params: { p_limit: fetchLimit, p_offset: fetchOffset },
-        },
-        timestamp: Date.now(),
-        hypothesisId: "A",
-      }),
-    }).catch(() => {});
-    // #endregion
     if (error.code === "PGRST202") {
       const fallback = await fetchMapItemsFallback(fetchLimit, fetchOffset);
       if (fallback) {
@@ -224,12 +191,23 @@ export async function GET(request: NextRequest) {
             return tierEventIds!.has(row.id);
           });
         }
+        if (days != null && days > 0) {
+          const since = new Date();
+          since.setDate(since.getDate() - days);
+          const sinceMs = since.getTime();
+          list = list.filter((row) => {
+            const occ = row.occurred_at ? new Date(row.occurred_at).getTime() : 0;
+            return occ >= sinceMs;
+          });
+        }
         if (region != null && region.trim() !== "") {
           const r = region.trim();
           list = list.filter((row) => {
             const key = getRegionKey(row.country_code ?? null, row.primary_location ?? null);
             return key === r;
           });
+          list = list.slice(offset, offset + limit);
+        } else {
           list = list.slice(offset, offset + limit);
         }
         log.info("Public map items listed (fallback)", { count: list.length });
@@ -249,12 +227,24 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  if (days != null && days > 0) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const sinceMs = since.getTime();
+    list = list.filter((row) => {
+      const occ = row.occurred_at ? new Date(row.occurred_at).getTime() : 0;
+      return occ >= sinceMs;
+    });
+  }
+
   if (region != null && region.trim() !== "") {
     const r = region.trim();
     list = list.filter((row) => {
       const key = getRegionKey(row.country_code ?? null, row.primary_location ?? null);
       return key === r;
     });
+    list = list.slice(offset, offset + limit);
+  } else {
     list = list.slice(offset, offset + limit);
   }
 
@@ -263,6 +253,7 @@ export async function GET(request: NextRequest) {
     limit,
     offset,
     region: region ?? undefined,
+    days: days ?? undefined,
   });
   return NextResponse.json(list);
 }
