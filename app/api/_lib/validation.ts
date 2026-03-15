@@ -43,6 +43,8 @@ export const createDraftEventSchema = z.object({
   source_url: z.string().url().optional(),
   source_name: z.string().max(200).optional(),
   feed_key: z.string().max(50).optional(),
+  /** GDELT EventRootCode; used for auto-publish rule (e.g. >= 14 → Published). Not persisted to DB. */
+  event_root_code: z.number().int().min(0).max(99).optional(),
   actors: z
     .array(
       z.object({
@@ -93,6 +95,39 @@ export const publicEventsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional().default(0),
   days: z.coerce.number().int().min(1).max(90).optional(),
 });
+
+/** Query params for GET /api/events (public read API). */
+const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/;
+export const eventsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  since: z.string().regex(dateOnlyRegex, "since must be YYYY-MM-DD").optional(),
+  until: z.string().regex(dateOnlyRegex, "until must be YYYY-MM-DD").optional(),
+  category: z.string().optional(), // comma-separated, validated in handler
+  country: z.string().min(1).max(10).optional(),
+  confidence: z.enum(["Medium", "High"]).optional(),
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lon: z.coerce.number().min(-180).max(180).optional(),
+  radius_km: z.coerce.number().min(0).max(10_000).optional(),
+  full_summary: z.coerce.boolean().optional().default(false),
+}).refine(
+  (data) => {
+    if ((data.lat != null || data.lon != null || data.radius_km != null)) {
+      return data.lat != null && data.lon != null && data.radius_km != null;
+    }
+    return true;
+  },
+  { message: "lat, lon, and radius_km must be provided together for geo filter" }
+);
+export type EventsQuery = z.infer<typeof eventsQuerySchema>;
+
+/** Query params for GET /api/clusters (heat-map aggregation). */
+export const clustersQuerySchema = z.object({
+  timeline: z.enum(["7d", "30d"]).optional().default("7d"),
+  resolution: z.enum(["coarse", "medium", "fine"]).optional().default("medium"),
+  category: z.string().min(1).max(100).optional(),
+});
+export type ClustersQuery = z.infer<typeof clustersQuerySchema>;
 
 export const reviewEventSchema = z.object({
   action: z.enum(["request_changes", "approve_for_review", "publish", "reject"]),

@@ -1,9 +1,8 @@
 /**
- * GDELT daily conflict-focused ingestion.
- * Downloads yesterday's export CSV zip, filters for violence/protests and negative Goldstein,
- * normalizes to draft format, and POSTs batch to /api/internal/ingest (or processes in-process).
+ * GDELT conflict-focused ingestion (15-min update feed or daily fallback).
+ * Uses lastupdate.txt to get latest 15-min zip; 30s fetch timeout; max 200 rows.
+ * Requires title, source_url, lat, lon per item; POSTs to /api/internal/ingest with feed_key gdelt_events.
  * Env: INGEST_BASE_URL + INGEST_API_KEY for batch POST; else uses processIngestBatch.
- * Noisy — future filtering recommended (see README).
  */
 
 import { ingestGDELTDaily } from "@/lib/ingest/gdeltDaily";
@@ -12,11 +11,11 @@ async function main(): Promise<number> {
   try {
     const result = await ingestGDELTDaily();
     console.log(
-      `GDELT daily ingest done. Fetched: ${result.fetched}, Processed: ${result.processed}, Skipped: ${result.skipped}`
+      `GDELT ingest done. Fetched: ${result.fetched}, Processed: ${result.processed}, Skipped: ${result.skipped}`
     );
     return 0;
   } catch (err) {
-    console.error("GDELT daily ingest failed:", err instanceof Error ? err.message : err);
+    console.error("GDELT ingest failed:", err instanceof Error ? err.message : err);
     return 1;
   }
 }

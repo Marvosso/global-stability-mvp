@@ -30,9 +30,10 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
       ? new Date(rawDate).toISOString()
       : new Date().toISOString();
 
-  // Confidence: USGS/GDACS/FIRMS/CrisisWatch = High; ReliefWeb/ACLED/GDELT events = Medium (trusted feeds auto-publish).
+  // Confidence: USGS/GDACS/FIRMS/CrisisWatch/ACLED = High; ReliefWeb/GDELT events = Medium (trusted feeds auto-publish).
+  const isAcledFeed = key === "acled";
   const confidenceLevel =
-    isUSGS || isGDACS || isFIRMS || isCrisisWatch
+    isUSGS || isGDACS || isFIRMS || isCrisisWatch || isAcledFeed
       ? "High"
       : isReliefWeb || isACLED || isGdeltEventsLive || isGdeltEvents
         ? "Medium"
@@ -97,19 +98,19 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   }
 
   if (isGDELT || isGdeltEvents || isGdeltEventsLive) {
-    // GDELT: category from item (gdeltDaily map: 14–15 Political Tension, 16–20 Armed Conflict).
+    // GDELT: category from item (EventRootCode >= 14 → Armed Conflict, else Political Tension).
+    const raw = item.raw as { event_root_code?: number } | undefined;
+    const eventRootCode = raw?.event_root_code;
     const category =
       item.category ??
-      (() => {
-        const raw = item.raw as { event_root_code?: number } | undefined;
-        const code = raw?.event_root_code;
-        if (typeof code === "number" && code >= 16 && code <= 20) return "Armed Conflict" as const;
-        return "Political Tension" as const;
-      })();
+      (typeof eventRootCode === "number" && eventRootCode >= 14
+        ? ("Armed Conflict" as const)
+        : ("Political Tension" as const));
     return {
       ...base,
       category: category as CreateDraftEventData["category"],
       subtype: (item.subtype ?? "Protest") as CreateDraftEventData["subtype"],
+      ...(typeof eventRootCode === "number" && { event_root_code: eventRootCode }),
     };
   }
 

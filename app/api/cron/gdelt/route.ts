@@ -1,10 +1,12 @@
 /**
- * Vercel Cron: GDELT daily conflict-focused ingestion.
+ * Vercel Cron: GDELT conflict-focused ingestion (15-min feed or daily fallback).
  * GET /api/cron/gdelt — requires x-cron-key or Authorization: Bearer, runs ingestGDELTDaily().
  * Schedule: daily at 8 AM. Returns { fetched, processed, skipped }.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+
+export const maxDuration = 60;
 import { verifyCronKey } from "@/lib/cronAuth";
 import { ingestGDELTDaily } from "@/lib/ingest/gdeltDaily";
 

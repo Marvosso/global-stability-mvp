@@ -1,137 +1,135 @@
-# global-stability-mvp
+# GeoStability API
 
-Reference files and starter code for Global Stability MVP.
+**Open wrapper over global crisis feeds.** Query ACLED, GDELT, USGS, GDACS and more in one place—armed conflict, natural disasters, humanitarian events—with clustering, confidence scoring, and basic geo filters.
 
-## Domain setup (geostability.com)
+- **Free tier:** 500 calls/month with an API key.
+- **Endpoints:** Events (list/filter), Clusters (heat-map aggregation).
+- **License:** [MIT](LICENSE).
 
-For production at **https://geostability.com**:
+## Endpoints
 
-1. **Vercel** — Add the domain in Project → Settings → Domains. Set `NEXT_PUBLIC_APP_URL=https://geostability.com` and `APP_BASE_URL=https://geostability.com` in env vars (optional; production fallback uses geostability.com).
-2. **Supabase** — Authentication → URL Configuration: set **Site URL** to `https://geostability.com` and add `https://geostability.com/**` to **Redirect URLs**.
-3. **GitHub Actions** — Set `APP_BASE_URL` (or `INGEST_BASE_URL`) secret to `https://geostability.com` for ingest workflows.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/events` | List published events with filters. Paginated, supports category, country, date range, geo (lat/lon/radius). |
+| GET | `/api/clusters` | Heat-map style aggregation: buckets with `lat`, `lon`, `count`, `avg_confidence`, `dominant_category`, `events_sample`. |
 
-## Feed ingestion
+### GET /api/events
 
-The app can ingest draft events from **RSS (or other) feeds**. Scripts fetch feeds, normalize items, and POST to the internal ingest API. The API dedupes by `source_url` in `ingestion_items` and creates **draft events only** (status `UnderReview`); nothing is auto-published.
+**Query params**
 
-### Environment variables
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | int | 20 | Max 100. |
+| `offset` | int | 0 | Pagination. |
+| `since` | YYYY-MM-DD | — | Filter by `occurred_at >= since`. |
+| `until` | YYYY-MM-DD | — | Filter by `occurred_at <= until`. |
+| `category` | string | — | Comma-separated (e.g. `Armed Conflict`, `Natural Disaster`). |
+| `country` | string | — | ISO country code (e.g. `UKR`). |
+| `confidence` | string | — | `Medium` or `High`. |
+| `lat`, `lon`, `radius_km` | number | — | All three required for geo filter (radius in km). |
+| `full_summary` | bool | false | Pro/Enterprise: include full summary. |
 
-Set these in `.env.local` (and in CI/deploy for scheduled runs):
+**Response schema**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "title": "string",
+      "category": "string",
+      "subtype": "string | null",
+      "severity": "string",
+      "confidence": "string | null",
+      "occurred_at": "ISO8601 | null",
+      "lat": "number | null",
+      "lon": "number | null",
+      "sources": [{ "name": "string", "url": "string | null" }],
+      "summary": "string | null"
+    }
+  ],
+  "total": "number",
+  "next_offset": "number | null"
+}
+```
+
+### GET /api/clusters
+
+**Query params**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `timeline` | string | `7d` | `7d` or `30d` (events in last N days). |
+| `resolution` | string | `medium` | `coarse`, `medium`, or `fine` (grid size). |
+| `category` | string | — | Optional filter by category. |
+
+**Response:** Array of `{ lat, lon, count, avg_confidence, dominant_category, events_sample }` where `events_sample` is up to 3 event IDs.
+
+## Auth & credits
+
+- **Anonymous:** No key; rate limit 100 requests/IP/hour. No credits tracked.
+- **API key:** Send `X-API-Key: <key>` or `Authorization: Bearer <key>`. Keys are created after sign-up via **POST /api/keys/generate** (Supabase session required).
+- **Credits:** 1 credit per call when using a key. Free tier: 500 credits/month, reset monthly. When credits are exhausted you get `402 Payment Required`.
+- **Tiers:** Free (500/mo), Pro ($9/mo, unlimited basic), Enterprise (contact). Premium params (e.g. `full_summary=true`) require Pro or Enterprise.
+
+## Setup
+
+### Environment variables (Supabase)
+
+Create `.env.local` (and set the same in Vercel/hosting):
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `INGEST_API_KEY` | Yes | Secret key for the ingest API. Header `x-ingest-key` must match. Not exposed to the client. |
-| `CRON_SECRET` | For cron | Secret for Vercel Cron routes. Header `x-cron-key` must match. Not exposed to the client. |
-| `INGEST_BASE_URL` or `APP_BASE_URL` | No | Base URL of the app (default `http://localhost:3000`). Used by scripts and cron fallback. |
-| `RELIEFWEB_RSS_URL` | For ReliefWeb | RSS feed URL for ReliefWeb (e.g. `https://reliefweb.int/updates/rss.xml`). |
-| `GDACS_RSS_URL` | For GDACS | RSS feed URL for GDACS (e.g. `https://www.gdacs.org/gdacsrss.xml`). Required for cron and script. |
-| `USGS_GEOJSON_URL` | For USGS | Optional. GeoJSON feed URL (default: `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson`). Use `all_hour.geojson` for past hour. |
-| `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | For ReliefWeb | Required only for the ReliefWeb script (it writes to `ingestion_items` directly). GDACS uses the API only. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon/public key (client auth). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (server-only; API and DB). |
 
-### Ingest API
+Optional for cron/ingest: `CRON_SECRET`, `INGEST_API_KEY`, feed URLs (e.g. `GDACS_RSS_URL`, `USGS_GEOJSON_URL`). See existing README sections or repo for ingest and cron.
 
-- **Endpoint**: `POST /api/internal/ingest`
-- **Auth**: Header `x-ingest-key` must equal `INGEST_API_KEY`. If unset, the route returns 503.
-- **Single draft (legacy)**: Body is one draft event (validated with `createDraftEventSchema`). Response: `201` + event.
-- **Batch**: Body `{ "items": [ { "feed_key", "source_name", "source_url", "title", "summary?", "occurred_at?", "published_at?", "location?", "tags?", "raw?" }, ... ] }`. Dedupe by `source_url`; for each new item the API inserts into `ingestion_items` and creates a draft event (UnderReview). Response: `200` + `{ "processed", "skipped" }`.
-
-### How to run the scripts
-
-1. **Apply migrations** (including `ingestion_items` and `feed_key`): run the SQL in `migrations/` against your Supabase project (order by filename).
-
-2. **Start the app** so the ingest endpoint is available:
-   ```bash
-   npm run dev
-   ```
-
-3. **Run a feed script**:
-   ```bash
-   npm run ingest:gdacs
-   ```
-   or
-   ```bash
-   npm run ingest:usgs
-   ```
-   or
-   ```bash
-   npm run ingest:reliefweb
-   ```
-
-   - **GDACS**: Fetches `GDACS_RSS_URL`, normalizes items (`feed_key: "gdacs_rss"`, `source_name: "GDACS"`), POSTs batch to `/api/internal/ingest`. Exits with code `0` on success, `1` on fetch/parse/API error. Logs if RSS returns HTML or 0 items.
-   - **USGS**: Fetches USGS GeoJSON (all_day or all_hour; `USGS_GEOJSON_URL`), normalizes features (`feed_key: "usgs_eq"`, `source_name: "USGS"`, `source_url`, title, summary "M {mag} - {place}", `occurred_at` from time ms, `location` from geometry), POSTs batch to `/api/internal/ingest`.
-   - **ReliefWeb**: Fetches `RELIEFWEB_RSS_URL`, dedupes via Supabase `ingestion_items`, inserts new rows, POSTs each new item to the ingest API, updates status. Requires Supabase env vars.
-   - **GDELT daily** (`npm run ingest:gdelt-daily`): Downloads yesterday’s GDELT daily export CSV zip from `http://data.gdeltproject.org/events/YYYYMMDD.export.CSV.zip`, filters rows by EventRootCode [10–20] or GoldsteinScale ≤ -4, limits to 50–100 highest-impact events, normalizes to draft format (`feed_key: "gdelt_events"`, confidence Low), and POSTs batch to `/api/internal/ingest`. **This feed is noisy; future filtering/tuning is recommended.**
-
-### Schedule ingestion with GitHub Actions
-
-The workflow `.github/workflows/ingest.yml` runs **GDACS** ingestion every 30 minutes and can be triggered manually (`workflow_dispatch`).
-
-**Required secrets** (Settings → Secrets and variables → Actions):
-
-| Secret | Description |
-|--------|-------------|
-| `APP_BASE_URL` | Base URL of the deployed app (e.g. `https://geostability.com`). Used as `INGEST_BASE_URL` by the script. For local/manual runs you can use `http://localhost:3000` if the app is reachable. |
-| `INGEST_API_KEY` | Same value as `INGEST_API_KEY` in your app environment. The ingest endpoint validates the `x-ingest-key` header against this. |
-| `GDACS_RSS_URL` | RSS feed URL for GDACS (e.g. `https://www.gdacs.org/gdacsrss.xml`). |
-
-Ensure the app is deployed and `INGEST_API_KEY` is set in the app's environment so the ingest endpoint accepts requests from the workflow.
-
-For **ReliefWeb**, use or duplicate `.github/workflows/ingest-reliefweb.yml`; add secrets `INGEST_API_KEY`, `INGEST_BASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and optionally `RELIEFWEB_RSS_URL`.
-
-### Vercel Cron
-
-Cron routes run fetch+normalize in-process and POST to the internal ingest API. No shell-out.
-
-- **`GET /api/cron/usgs`** — USGS earthquakes. Returns `{ fetched, processed, skipped, feed_key }`.
-- **`GET /api/cron/gdacs`** — GDACS disasters. Requires `GDACS_RSS_URL`.
-- **`GET /api/cron/gdelt`** — GDELT daily conflict-focused pull (runs at 8 AM UTC). Downloads yesterday’s export CSV zip, filters and normalizes, POSTs batch to ingest. **Noisy; future filtering recommended.**
-
-Each cron request **must** include the header `x-cron-key: <CRON_SECRET>` (or `Authorization: Bearer <CRON_SECRET>`). Without it, the route returns 401.
-
-#### Deployment
-
-1. **Environment variables** (Vercel Project → Settings → Environment Variables):
-
-   | Variable | Required | Description |
-   |----------|----------|-------------|
-   | `CRON_SECRET` | Yes | Secret for cron auth. Generate with `openssl rand -hex 32`. Used as `x-cron-key` header value. |
-   | `INGEST_API_KEY` | Yes | Secret for the ingest API. Must match `x-ingest-key` when cron POSTs to `/api/internal/ingest`. |
-   | `GDACS_RSS_URL` | For GDACS | RSS feed URL (e.g. `https://www.gdacs.org/xml/rss.xml`). |
-   | `APP_BASE_URL` | No | App URL for internal fetch (e.g. `https://geostability.com`). Defaults to request origin or `https://<VERCEL_URL>`. |
-   | `NEXT_PUBLIC_APP_URL` | No | Canonical app URL for alert email links. Production default: `https://geostability.com`. |
-
-2. **Cron schedules** — `vercel.json`:
-
-   ```json
-   {
-     "crons": [
-       { "path": "/api/cron/usgs", "schedule": "*/15 * * * *" },
-       { "path": "/api/cron/gdacs", "schedule": "0 * * * *" },
-       { "path": "/api/cron/gdelt", "schedule": "0 8 * * *" }
-     ]
-   }
-   ```
-
-   - USGS: every 15 minutes
-   - GDACS: every 60 minutes (hourly)
-   - GDELT daily: once per day at 8:00 UTC
-
-3. **Cron auth** — Configure your cron invoker to send `x-cron-key: <CRON_SECRET>` on each request. Vercel Cron may send `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is set; both are accepted.
-
-#### Test locally with curl
+### Run locally
 
 ```bash
-# Start the app
+npm install
 npm run dev
-
-# Run USGS cron (replace YOUR_CRON_SECRET with the value from .env.local)
-curl -H "x-cron-key: YOUR_CRON_SECRET" "http://localhost:3000/api/cron/usgs"
-
-# Run GDACS cron
-curl -H "x-cron-key: YOUR_CRON_SECRET" "http://localhost:3000/api/cron/gdacs"
-
-# Run GDELT daily cron
-curl -H "x-cron-key: YOUR_CRON_SECRET" "http://localhost:3000/api/cron/gdelt"
 ```
 
-Expected response: `{ "fetched": N, "processed": P, "skipped": S, "feed_key": "usgs_eq" }` (or `gdacs_rss`).
+Open [http://localhost:3000](http://localhost:3000). API base: `http://localhost:3000`.
+
+### Database
+
+Run the SQL migrations in `migrations/` in order against your Supabase project (Supabase SQL editor or CLI).
+
+## Examples
+
+See the **[examples](examples/)** folder:
+
+- **curl** — `examples/curl.sh` (or inline in `examples/README.md`)
+- **Node (node-fetch)** — `examples/events-node.mjs`
+- **Python (requests)** — `examples/events.py`
+
+Quick curl:
+
+```bash
+# List events (anonymous; rate-limited)
+curl 'https://geostability.com/api/events?limit=10&category=Armed%20Conflict'
+
+# With API key (uses credits)
+curl 'https://geostability.com/api/events?limit=10' -H 'X-API-Key: YOUR_KEY'
+
+# Clusters (heat-map data)
+curl 'https://geostability.com/api/clusters?timeline=7d&resolution=medium'
+```
+
+Replace `https://geostability.com` with your deployment URL or `http://localhost:3000` for local.
+
+## Deploy (Vercel)
+
+1. Connect the repo to [Vercel](https://vercel.com); Vercel will create preview deployments for PRs.
+2. Add the Supabase env vars in Project → Settings → Environment Variables.
+3. Optional: set `CRON_SECRET`, `INGEST_API_KEY`, and feed URLs if you use cron/ingest.
+
+A GitHub Actions workflow (`.github/workflows/vercel-preview.yml`) runs `npm ci && npm run build` on push/PR to verify the app builds; preview URLs are created by Vercel when the repo is linked.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

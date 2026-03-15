@@ -348,8 +348,15 @@ function getAutoPublishRule(
     if (data.source_name?.toLowerCase().includes("firms")) return "firms";
   }
 
+  if (confidence === "High") {
+    if (feedKey === "acled_conflicts" || feedKey === "acled") return "acled";
+  }
   if (confidence === "Medium" || confidence === "High") {
-    if (feedKey === "gdelt_events_live" || feedKey === "gdelt_events") return "gdelt_live";
+    if (feedKey === "gdelt_events_live") return "gdelt_live";
+    if (feedKey === "gdelt_events") {
+      const eventRootCode = (data as { event_root_code?: number }).event_root_code;
+      if (typeof eventRootCode === "number" && eventRootCode >= 14) return "gdelt_live";
+    }
     if (feedKey === "acled_conflicts" || feedKey === "acled") return "acled";
   }
 

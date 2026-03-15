@@ -1,23 +1,23 @@
 /**
- * GDELT daily conflict-focused ingestion.
- * Downloads the daily export CSV zip from data.gdeltproject.org, parses it,
- * filters strictly for conflict: EventRootCode in [14,15,16,17,18,19,20] or
- * GoldsteinScale <= -5 or actor mentions Ukraine/Russia/Iran/Israel/Gaza.
- * Category: 14–15 → Political Tension, 16–20 → Armed Conflict. Confidence Medium.
- * All conflict-filtered items use feed_key gdelt_events_live and auto-publish.
+ * GDELT conflict-focused ingestion using the 15-minute update feed.
+ * Fetches lastupdate.txt to get latest 15-min file, or falls back to daily export.
+ * Filters for conflict: EventRootCode in [14–20] or GoldsteinScale <= -5 or actor keywords.
+ * Category: 14–15 = Political Tension, 16–20 = Armed Conflict. Confidence Medium.
+ * POSTs to /api/internal/ingest with feed_key gdelt_events. Max 200 rows, 30s fetch timeout.
  */
 
 import AdmZip from "adm-zip";
 import type { IngestItem } from "@/app/api/_lib/validation";
 import { processIngestBatch } from "@/app/api/_lib/processIngestBatch";
-import { supabaseAdmin } from "@/app/api/_lib/db";
 
 const FEED_KEY = "gdelt_events";
-const FEED_KEY_LIVE = "gdelt_events_live"; // conflict items (EventRootCode >= 14 or Goldstein <= -5 or actor keywords); auto-published
 const SOURCE_NAME = "GDELT";
-const BASE_URL = "http://data.gdeltproject.org/events";
-const MAX_ITEMS = 100;
-const MIN_ITEMS = 50;
+const BASE_URL_DAILY = "http://data.gdeltproject.org/events";
+const BASE_URL_V2 = "https://data.gdeltproject.org/gdeltv2";
+const LASTUPDATE_TXT = `${BASE_URL_V2}/lastupdate.txt`;
+const FETCH_TIMEOUT_MS = 30_000;
+const MAX_ITEMS = 200;
+const MIN_ITEMS = 10;
 const CONFLICT_ACTOR_MENTIONS = ["ukraine", "russia", "iran", "israel", "gaza"];
 
 // GDELT 1.0 export.CSV: tab-separated, no header (codebook column indices 0-based)
@@ -88,9 +88,9 @@ function passesFilter(
   return rootOk || goldsteinOk || actorOk;
 }
 
-/** EventRootCode: 14–15 = Political Tension, 16–20 = Armed Conflict. */
+/** EventRootCode >= 14 → Armed Conflict, else Political Tension (per prompt). */
 function categoryFromEventRootCode(eventRootCode: number): "Armed Conflict" | "Political Tension" {
-  return eventRootCode >= 16 && eventRootCode <= 20 ? "Armed Conflict" : "Political Tension";
+  return eventRootCode >= 14 ? "Armed Conflict" : "Political Tension";
 }
 
 /** Impact score for sorting (lower Goldstein = more negative; more mentions = higher impact). */
@@ -99,10 +99,58 @@ function impactScore(goldsteinScale: number, numMentions: number): number {
   return -goldsteinScale * 10 + m;
 }
 
+/** Fetch with 30s timeout. */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "globalstability-mvp/1.0",
+        ...(options.headers as Record<string, string>),
+      },
+    });
+    return res;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/** Resolve zip URL: try lastupdate.txt (15-min) then fallback to daily export. */
+async function resolveZipUrl(options: { date?: string }): Promise<{ url: string; label: string }> {
+  try {
+    const res = await fetchWithTimeout(LASTUPDATE_TXT);
+    if (!res.ok) throw new Error(`${res.status}`);
+    const text = await res.text();
+    const line = text.split(/\r?\n/)[0]?.trim() ?? "";
+    const timestamp = line.replace(/\.export\.(CSV|csv)\.zip$/i, "").slice(0, 14);
+    if (/^\d{14}$/.test(timestamp)) {
+      const url = `${BASE_URL_V2}/${timestamp}.export.CSV.zip`;
+      return { url, label: `15-min ${timestamp}` };
+    }
+  } catch (err) {
+    log.warn("[gdelt-daily] lastupdate.txt failed, using daily export", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yyyymmdd = options.date ?? yesterday.toISOString().slice(0, 10).replace(/-/g, "");
+  return {
+    url: `${BASE_URL_DAILY}/${yyyymmdd}.export.CSV.zip`,
+    label: `daily ${yyyymmdd}`,
+  };
+}
+
 export type IngestGDELTDailyOptions = {
-  /** YYYYMMDD; default: yesterday (current date minus 1 day). */
+  /** YYYYMMDD; used only when falling back to daily export. */
   date?: string;
-  /** Max items to send per run (default 100). */
+  /** Max items to send per run (default 200). */
   maxItems?: number;
   /** Use batch POST to /api/internal/ingest when INGEST_BASE_URL + INGEST_API_KEY set. */
   useBatchIngest?: boolean;
@@ -111,24 +159,19 @@ export type IngestGDELTDailyOptions = {
 export async function ingestGDELTDaily(
   options: IngestGDELTDailyOptions = {}
 ): Promise<{ fetched: number; processed: number; skipped: number }> {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yyyymmdd = options.date ?? yesterday.toISOString().slice(0, 10).replace(/-/g, "");
-  const url = `${BASE_URL}/${yyyymmdd}.export.CSV.zip`;
   const maxItems = Math.min(Math.max(options.maxItems ?? MAX_ITEMS, MIN_ITEMS), 200);
+  const { url: zipUrl, label: sourceLabel } = await resolveZipUrl(options);
 
   let zipBuf: ArrayBuffer;
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "globalstability-mvp/1.0" },
-    });
+    const res = await fetchWithTimeout(zipUrl);
     if (!res.ok) {
-      throw new Error(`GDELT daily download failed: ${res.status} ${res.statusText}`);
+      throw new Error(`GDELT download failed: ${res.status} ${res.statusText}`);
     }
     zipBuf = await res.arrayBuffer();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error("[gdelt-daily] download failed", { url, error: msg });
+    log.error("[gdelt-daily] download failed", { url: zipUrl, error: msg });
     throw err;
   }
 
@@ -150,6 +193,8 @@ export async function ingestGDELTDaily(
   }
 
   const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  console.log(`GDELT: fetched ${lines.length} rows from ${sourceLabel}`);
+
   const rows: Array<{ row: string[]; eventRootCode: number; goldsteinScale: number; numMentions: number }> = [];
 
   for (const line of lines) {
@@ -171,31 +216,47 @@ export async function ingestGDELTDaily(
   const selected = rows.slice(0, maxItems);
 
   const ingestItems: IngestItem[] = [];
+  const yyyymmdd = options.date ?? new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
+  let skippedMissing = 0;
   selected.forEach(({ row, eventRootCode, numMentions }) => {
     const globalEventId = getCol(row, IDX.GlobaleventID);
     const sqlDate = getCol(row, IDX.SQLDATE);
     const actor1 = getCol(row, IDX.Actor1Name);
     const actor2 = getCol(row, IDX.Actor2Name);
-    const eventCode = getCol(row, IDX.EventCode);
+    const action = getCol(row, IDX.EventCode);
     const latRaw = getCol(row, IDX.ActionGeo_Lat);
     const lngRaw = getCol(row, IDX.ActionGeo_Long);
 
     const occurredAt = sqlDateToIso(sqlDate);
-    const title = [actor1, actor2, eventCode].filter(Boolean).join(" / ") || "GDELT event";
+    const title = [actor1, action, actor2].filter(Boolean).join(" ").trim() || "GDELT event";
     const summary = title;
     const lat = parseNum(latRaw);
     const lng = parseNum(lngRaw);
-    const location =
-      Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
-        ? `${lat},${lng}`
-        : undefined;
-
+    const validLatLon =
+      Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    const location = validLatLon ? `${lat},${lng}` : undefined;
     const srcUrl = sourceUrl(globalEventId || crypto.randomUUID(), sqlDate || yyyymmdd);
+
+    if (!title.trim()) {
+      skippedMissing++;
+      log.warn("[gdelt-daily] skip: missing title", { actor1: actor1 || "(empty)", actor2: actor2 || "(empty)", action: action || "(empty)" });
+      return;
+    }
+    if (!srcUrl) {
+      skippedMissing++;
+      log.warn("[gdelt-daily] skip: missing source_url", { globalEventId, sqlDate });
+      return;
+    }
+    if (!validLatLon) {
+      skippedMissing++;
+      log.warn("[gdelt-daily] skip: missing or invalid lat/lon", { latRaw, lngRaw });
+      return;
+    }
 
     const category = categoryFromEventRootCode(eventRootCode);
     ingestItems.push({
-      feed_key: FEED_KEY_LIVE,
+      feed_key: FEED_KEY,
       source_name: SOURCE_NAME,
       source_url: srcUrl,
       title: title.slice(0, 500),
@@ -208,8 +269,13 @@ export async function ingestGDELTDaily(
     });
   });
 
+  if (skippedMissing > 0) {
+    console.log(`GDELT: skipped ${skippedMissing} items (missing required title, source_url, or lat/lon)`);
+  }
+  console.log(`GDELT: normalized ${ingestItems.length} items (required title, source_url, lat, lon)`);
+
   if (ingestItems.length === 0) {
-    return { fetched: 0, processed: 0, skipped: 0 };
+    return { fetched: lines.length, processed: 0, skipped: 0 };
   }
 
   const useBatchIngest =
@@ -228,14 +294,17 @@ export async function ingestGDELTDaily(
         body: JSON.stringify({ items: ingestItems }),
       });
       const body = (await res.json().catch(() => ({}))) as { processed?: number; skipped?: number };
+      const processed = body.processed ?? 0;
+      const skipped = body.skipped ?? 0;
+      console.log(`GDELT: posted to ingest API, processed=${processed}, skipped=${skipped}`);
       if (!res.ok) {
         log.error("[gdelt-daily] batch ingest failed", { status: res.status });
         return { fetched: ingestItems.length, processed: 0, skipped: ingestItems.length };
       }
       return {
         fetched: ingestItems.length,
-        processed: body.processed ?? 0,
-        skipped: body.skipped ?? 0,
+        processed,
+        skipped,
       };
     } catch (err) {
       log.error("[gdelt-daily] batch ingest request failed", {
@@ -246,5 +315,6 @@ export async function ingestGDELTDaily(
   }
 
   const { processed, skipped } = await processIngestBatch(FEED_KEY, ingestItems, log);
+  console.log(`GDELT: posted (in-process), processed=${processed}, skipped=${skipped}`);
   return { fetched: ingestItems.length, processed, skipped };
 }

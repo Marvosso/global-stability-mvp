@@ -1,0 +1,28 @@
+# Build on push/PR so Vercel deploy previews have a green check.
+# Connect this repo to Vercel for automatic preview deployments per branch/PR.
+
+name: Vercel deploy preview
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+      - run: npm run build
+        env:
+          # Placeholders so CI build succeeds; set real values in Vercel for deploy
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder

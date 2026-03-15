@@ -1,18 +1,19 @@
 /**
- * ACLED API ingestion (beta).
- * Fetches conflict events from acleddata.com API using myACLED OAuth (email + password).
- * No API key: authenticate with ACLED_EMAIL + ACLED_PASSWORD (or email_address + acled_password).
- * Filter: Ukraine, Israel, Iran; last 7 days. Category Armed Conflict, auto-published.
- * See: https://dtacled.github.io/acledR/articles/acled_api.html and https://acleddata.com/api-authentication
+ * ACLED API ingestion (free myACLED endpoint).
+ * Auth: ACLED_API_KEY (Bearer) or ACLED_EMAIL + ACLED_PASSWORD (OAuth).
+ * Filter: iso3 in UKR, ISR, IRN, PSE or event_type contains 'conflict'. Last 7 days.
+ * Normalize: title, lat/lon, occurred_at, category='Armed Conflict', feed_key='acled'. POST to /api/internal/ingest.
+ * Auto-publish: status Published, confidence High.
  */
 
 import type { IngestItem } from "@/app/api/_lib/validation";
 import { processIngestBatch } from "@/app/api/_lib/processIngestBatch";
 
-const FEED_KEY = "acled_conflicts";
+const FEED_KEY = "acled";
 const SOURCE_NAME = "ACLED";
 const BASE_URL = "https://acleddata.com/api/acled/read";
-const CONFLICT_COUNTRIES = ["Ukraine", "Israel", "Iran"];
+const HIGH_RELEVANCE_ISO3 = new Set(["UKR", "ISR", "IRN", "PSE"]);
+const COUNTRY_NAMES = "Ukraine|Israel|Iran|Palestine|State of Palestine";
 const DEFAULT_DAYS = 7;
 const LIMIT = 500;
 
@@ -29,6 +30,7 @@ type AcledEvent = {
   actor1?: string;
   actor2?: string;
   country?: string;
+  iso?: number | string;
   admin1?: string;
   location?: string;
   latitude?: number;
@@ -37,6 +39,22 @@ type AcledEvent = {
   source?: string;
   notes?: string;
   [key: string]: unknown;
+};
+
+const ISO3_BY_COUNTRY: Record<string, string> = {
+  ukraine: "UKR",
+  israel: "ISR",
+  "iran (islamic republic of)": "IRN",
+  iran: "IRN",
+  palestine: "PSE",
+  "state of palestine": "PSE",
+};
+
+const ISO_NUMERIC_TO_ISO3: Record<number, string> = {
+  804: "UKR",
+  376: "ISR",
+  364: "IRN",
+  275: "PSE",
 };
 
 type AcledResponse = {
@@ -90,12 +108,14 @@ async function getAcledToken(): Promise<string | null> {
 }
 
 function getAccessToken(): string | null {
+  const key = process.env.ACLED_API_KEY?.trim();
+  if (key) return key;
   const token = process.env.ACLED_ACCESS_TOKEN?.trim();
   if (token) return token;
   return null;
 }
 
-/** Fetch ACLED events (last 7 days, Ukraine | Israel | Iran). Uses token from env or OAuth. */
+/** Fetch ACLED events (last 7 days). Filter: iso3 in UKR/ISR/IRN/PSE or event_type contains 'conflict'. */
 async function fetchAcledEvents(token: string): Promise<AcledEvent[]> {
   const toDate = new Date();
   const fromDate = new Date();
@@ -103,10 +123,9 @@ async function fetchAcledEvents(token: string): Promise<AcledEvent[]> {
   const fromStr = fromDate.toISOString().slice(0, 10);
   const toStr = toDate.toISOString().slice(0, 10);
 
-  const countryParam = CONFLICT_COUNTRIES.join("|");
   const url = new URL(BASE_URL);
   url.searchParams.set("_format", "json");
-  url.searchParams.set("country", countryParam);
+  url.searchParams.set("country", COUNTRY_NAMES);
   url.searchParams.set("event_date", `${fromStr}|${toStr}`);
   url.searchParams.set("event_date_where", "BETWEEN");
   url.searchParams.set("limit", String(LIMIT));
@@ -126,7 +145,24 @@ async function fetchAcledEvents(token: string): Promise<AcledEvent[]> {
 
   const json = (await res.json()) as AcledResponse;
   const data = Array.isArray(json.data) ? json.data : [];
-  return data;
+
+  const highRelevance = data.filter((ev) => {
+    let iso3: string | null = null;
+    if (ev.iso != null) {
+      const n = typeof ev.iso === "number" ? ev.iso : parseInt(String(ev.iso), 10);
+      iso3 = Number.isFinite(n) ? (ISO_NUMERIC_TO_ISO3[n] ?? null) : String(ev.iso).toUpperCase().slice(0, 3) || null;
+    }
+    const countryNorm = (ev.country ?? "").toString().trim().toLowerCase();
+    const isoFromCountry = countryNorm ? ISO3_BY_COUNTRY[countryNorm] ?? null : null;
+    const inRegion =
+      (iso3 != null && HIGH_RELEVANCE_ISO3.has(iso3)) ||
+      (isoFromCountry != null && HIGH_RELEVANCE_ISO3.has(isoFromCountry));
+    const eventType = (ev.event_type ?? "").toString().toLowerCase();
+    const isConflict = eventType.includes("conflict");
+    return inRegion || isConflict;
+  });
+
+  return highRelevance;
 }
 
 function acledEventToIngestItem(ev: AcledEvent): IngestItem {
@@ -197,7 +233,7 @@ export async function ingestACLED(
   }
   if (!token) {
     log.warn(
-      "[acled] No ACLED token. Set ACLED_EMAIL + ACLED_PASSWORD (myACLED credentials) or ACLED_ACCESS_TOKEN in .env; skipping"
+      "[acled] No ACLED token. Set ACLED_API_KEY or ACLED_EMAIL + ACLED_PASSWORD (myACLED) in .env; skipping"
     );
     return { fetched: 0, processed: 0, skipped: 0 };
   }

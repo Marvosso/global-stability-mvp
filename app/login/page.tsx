@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowserClient } from "@/lib/supabaseBrowserClient";
 import { useSession } from "@/components/auth/SessionProvider";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session, isLoading: sessionLoading } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,12 +25,14 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
 
+  const redirectTo = searchParams.get("redirect") || "/admin";
+
   useEffect(() => {
     if (sessionLoading) return;
     if (session) {
-      router.replace("/admin");
+      router.replace(redirectTo.startsWith("/") ? redirectTo : "/admin");
     }
-  }, [session, sessionLoading, router]);
+  }, [session, sessionLoading, router, redirectTo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,7 +50,7 @@ export default function LoginPage() {
           setIsLoading(false);
           return;
         }
-        router.replace("/admin");
+        router.replace(redirectTo.startsWith("/") ? redirectTo : "/admin");
       } catch (configError) {
         const msg = configError instanceof Error ? configError.message : "Sign-up failed.";
         setError(msg.includes("required") ? "App is not configured for auth. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local." : msg);
@@ -66,7 +69,7 @@ export default function LoginPage() {
           setIsLoading(false);
           return;
         }
-        router.replace("/admin");
+        router.replace(redirectTo.startsWith("/") ? redirectTo : "/admin");
       } catch (configError) {
         const msg = configError instanceof Error ? configError.message : "Sign-in failed.";
         setError(msg.includes("required") ? "App is not configured for auth. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local." : msg);
@@ -154,5 +157,17 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen flex-col items-center justify-center p-4">
+        <p className="text-muted-foreground">Loading…</p>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

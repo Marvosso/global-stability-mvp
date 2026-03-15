@@ -13,6 +13,7 @@ const CODES = {
   UNAUTHORIZED: "UNAUTHORIZED",
   FORBIDDEN: "FORBIDDEN",
   UPGRADE_REQUIRED: "UPGRADE_REQUIRED",
+  PAYMENT_REQUIRED: "PAYMENT_REQUIRED",
   NOT_FOUND: "NOT_FOUND",
   INTERNAL_ERROR: "INTERNAL_ERROR",
   RATE_LIMIT_EXCEEDED: "RATE_LIMIT_EXCEEDED",
@@ -50,6 +51,11 @@ export function forbidden(message = "Forbidden"): NextResponse {
 /** Premium feature gating: 403 with code UPGRADE_REQUIRED when user_role is free. */
 export function upgradeRequired(message = "Upgrade required"): NextResponse {
   return errorResponse(403, message, { code: CODES.UPGRADE_REQUIRED });
+}
+
+/** Credits exhausted or payment required: 402. */
+export function paymentRequired(message = "Credits exhausted or payment required"): NextResponse {
+  return errorResponse(402, message, { code: CODES.PAYMENT_REQUIRED });
 }
 
 export function notFound(message = "Not found"): NextResponse {

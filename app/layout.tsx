@@ -4,11 +4,11 @@ import { SessionProvider } from "@/components/auth/SessionProvider";
 
 export const metadata: Metadata = {
   title: {
-    default: "GeoStability - Real-Time Global Crisis Map",
+    default: "GeoStability API – Unified Real-Time Crisis Events",
     template: "%s | GeoStability",
   },
   description:
-    "Real-time global crisis map: natural disasters, conflict, and humanitarian events from USGS, GDACS, ReliefWeb, and GDELT. Explore published events and methodology.",
+    "Query ACLED, GDELT, USGS, GDACS + clustering/confidence in one endpoint. Free tier: 500 calls/mo. Armed conflict, natural disasters, humanitarian events.",
 };
 
 export default function RootLayout({
