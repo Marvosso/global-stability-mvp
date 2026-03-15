@@ -9,6 +9,7 @@
 import AdmZip from "adm-zip";
 import type { IngestItem } from "@/app/api/_lib/validation";
 import { processIngestBatch } from "@/app/api/_lib/processIngestBatch";
+import { getCountryCentroid, centroidToPrimaryLocation } from "@/lib/countryCentroids";
 
 const FEED_KEY = "gdelt_events";
 const SOURCE_NAME = "GDELT";
@@ -30,6 +31,9 @@ const IDX = {
   EventRootCode: 32,
   GoldsteinScale: 34,
   NumMentions: 35,
+  Actor1Geo_Lat: 52,
+  Actor1Geo_Long: 53,
+  ActionGeo_CountryCode: 54,
   ActionGeo_Lat: 55,
   ActionGeo_Long: 56,
 } as const;
@@ -219,23 +223,40 @@ export async function ingestGDELTDaily(
   const yyyymmdd = options.date ?? new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
   let skippedMissing = 0;
-  selected.forEach(({ row, eventRootCode, numMentions }) => {
+  selected.forEach(({ row, eventRootCode, goldsteinScale, numMentions }) => {
     const globalEventId = getCol(row, IDX.GlobaleventID);
     const sqlDate = getCol(row, IDX.SQLDATE);
     const actor1 = getCol(row, IDX.Actor1Name);
     const actor2 = getCol(row, IDX.Actor2Name);
     const action = getCol(row, IDX.EventCode);
-    const latRaw = getCol(row, IDX.ActionGeo_Lat);
-    const lngRaw = getCol(row, IDX.ActionGeo_Long);
+    const actionLat = parseNum(getCol(row, IDX.ActionGeo_Lat));
+    const actionLng = parseNum(getCol(row, IDX.ActionGeo_Long));
+    const actor1Lat = parseNum(getCol(row, IDX.Actor1Geo_Lat));
+    const actor1Lng = parseNum(getCol(row, IDX.Actor1Geo_Long));
+    const lat = Number.isFinite(actionLat) && actionLat >= -90 && actionLat <= 90
+      ? actionLat
+      : Number.isFinite(actor1Lat) && actor1Lat >= -90 && actor1Lat <= 90
+        ? actor1Lat
+        : NaN;
+    const lng = Number.isFinite(actionLng) && actionLng >= -180 && actionLng <= 180
+      ? actionLng
+      : Number.isFinite(actor1Lng) && actor1Lng >= -180 && actor1Lng <= 180
+        ? actor1Lng
+        : NaN;
+    const validLatLon =
+      Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    let location: string | undefined = validLatLon ? `${lat},${lng}` : undefined;
+    if (!location) {
+      const countryCode = getCol(row, IDX.ActionGeo_CountryCode) || getCol(row, 43);
+      const centroid = getCountryCentroid(countryCode);
+      if (centroid) location = centroidToPrimaryLocation(centroid);
+    }
 
     const occurredAt = sqlDateToIso(sqlDate);
     const title = [actor1, action, actor2].filter(Boolean).join(" ").trim() || "GDELT event";
-    const summary = title;
-    const lat = parseNum(latRaw);
-    const lng = parseNum(lngRaw);
-    const validLatLon =
-      Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-    const location = validLatLon ? `${lat},${lng}` : undefined;
+    const approximatedLocation = !!location && !validLatLon;
+    let summary = title;
+    if (approximatedLocation || !location) summary = (summary + " Approximate location only.").slice(0, 5000);
     const srcUrl = sourceUrl(globalEventId || crypto.randomUUID(), sqlDate || yyyymmdd);
 
     if (!title.trim()) {
@@ -246,11 +267,6 @@ export async function ingestGDELTDaily(
     if (!srcUrl) {
       skippedMissing++;
       log.warn("[gdelt-daily] skip: missing source_url", { globalEventId, sqlDate });
-      return;
-    }
-    if (!validLatLon) {
-      skippedMissing++;
-      log.warn("[gdelt-daily] skip: missing or invalid lat/lon", { latRaw, lngRaw });
       return;
     }
 
@@ -265,7 +281,13 @@ export async function ingestGDELTDaily(
       published_at: occurredAt ?? undefined,
       location,
       category,
-      raw: { event_root_code: eventRootCode, num_mentions: numMentions },
+      raw: {
+        event_root_code: eventRootCode,
+        goldstein_scale: goldsteinScale,
+        num_mentions: numMentions,
+        no_coords: !validLatLon,
+        approximated_location: approximatedLocation,
+      },
     });
   });
 

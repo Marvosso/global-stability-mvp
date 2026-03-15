@@ -118,9 +118,15 @@ function DashboardContent() {
         headers,
         credentials: "include",
       });
-      const data = await res.json();
+      let data: { error?: string; url?: string; sessionId?: string };
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
       if (!res.ok) {
-        setMessage({ type: "error", text: data.error ?? "Failed to start checkout" });
+        const msg = data?.error ?? (res.status === 400 ? "Checkout failed. Ensure Stripe key and price ID use the same mode (test or live)." : "Failed to start checkout");
+        setMessage({ type: "error", text: msg });
         setUpgradeLoading(false);
         return;
       }

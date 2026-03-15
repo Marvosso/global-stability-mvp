@@ -1,8 +1,78 @@
-"use client";
-
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MapTeaserSection } from "@/components/public/MapTeaserSection";
+import { supabaseAdmin } from "@/app/api/_lib/db";
+import { parsePrimaryLocation } from "@/lib/eventCoordinates";
+import { formatRelativeTime } from "@/lib/relativeTime";
+
+export const revalidate = 300; // ISR: refresh every 5 minutes
+
+type EventRow = {
+  id: string;
+  title: string | null;
+  summary: string | null;
+  category: string | null;
+  confidence_level: string | null;
+  occurred_at: string | null;
+  primary_location: string | null;
+  country_code: string | null;
+};
+
+function locationLabel(row: EventRow): string {
+  const coords = parsePrimaryLocation(row.primary_location);
+  if (coords) return `Near ${coords.lat.toFixed(2)}, ${coords.lng.toFixed(2)}`;
+  if (row.country_code?.trim()) return row.country_code;
+  return "Location data loading – check API for full coordinates";
+}
+
+function categoryBadgeClass(category: string | null): string {
+  if (category === "Armed Conflict") return "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30";
+  if (category === "Natural Disaster") return "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30";
+  return "bg-muted text-muted-foreground border-border";
+}
+
+function confidenceBadgeClass(level: string | null): string {
+  if (level === "High") return "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30";
+  if (level === "Medium") return "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30";
+  if (level === "Low") return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/30";
+  return "bg-muted text-muted-foreground border-border";
+}
+
+async function getRecentEvents(): Promise<
+  Array<EventRow & { source_count: number; first_source_url: string | null }>
+> {
+  try {
+    const { data: rows, error } = await supabaseAdmin
+      .from("events")
+      .select("id, title, summary, category, confidence_level, occurred_at, primary_location, country_code")
+      .eq("status", "Published")
+      .order("occurred_at", { ascending: false, nullsFirst: false })
+      .limit(8);
+    if (error || !rows?.length) return [];
+    const events = rows as EventRow[];
+    const ids = events.map((e) => e.id);
+    const { data: links } = await supabaseAdmin
+      .from("event_sources")
+      .select("event_id, claim_url")
+      .in("event_id", ids);
+    const byEvent = new Map<string, { count: number; firstUrl: string | null }>();
+    for (const id of ids) byEvent.set(id, { count: 0, firstUrl: null });
+    const linkList = (links ?? []) as { event_id: string; claim_url: string | null }[];
+    for (const l of linkList) {
+      const cur = byEvent.get(l.event_id);
+      if (!cur) continue;
+      cur.count += 1;
+      if (!cur.firstUrl && l.claim_url) cur.firstUrl = l.claim_url;
+    }
+    return events.map((e) => {
+      const { count, firstUrl } = byEvent.get(e.id) ?? { count: 0, firstUrl: null };
+      return { ...e, source_count: count, first_source_url: firstUrl };
+    });
+  } catch {
+    return [];
+  }
+}
 
 const FEATURES = [
   {
@@ -25,10 +95,33 @@ const PRICING = [
   { name: "Enterprise", calls: "Bulk & custom", price: "Contact", cta: "Contact us" },
 ];
 
-const CURL_EXAMPLE = `curl 'https://geostability.com/api/events?category=Armed%20Conflict&limit=10' \\
-  -H 'X-API-Key: yourkey'`;
+const CURL_EXAMPLE = `curl 'https://geostability.com/api/events?limit=10'`;
 
-export default function HomePage() {
+const SAMPLE_RESPONSE = {
+  data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      title: "Armed clash in region X",
+      category: "Armed Conflict",
+      subtype: "Armed clash",
+      severity: "High",
+      confidence: "Medium",
+      occurred_at: "2025-03-10T14:00:00.000Z",
+      lat: 50.45,
+      lon: 30.52,
+      sources: ["https://example.com/source1"],
+      feed_key: "gdelt_events",
+      summary:
+        "Multiple corroborating reports of missile strike from Ukrainian and international media. High confidence due to ACLED verification.",
+    },
+  ],
+  total: 1,
+  returned: 1,
+};
+
+export default async function HomePage() {
+  const recentEvents = await getRecentEvents();
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
@@ -82,6 +175,8 @@ export default function HomePage() {
           </div>
         </section>
 
+        <MapTeaserSection />
+
         <section className="mb-16">
           <h3 className="mb-6 text-xl font-semibold">Pricing</h3>
           <div className="grid gap-4 sm:grid-cols-3">
@@ -102,25 +197,84 @@ export default function HomePage() {
           </div>
         </section>
 
+        <section className="mb-16">
+          <h3 className="mb-2 text-xl font-semibold">What&apos;s happening right now – sample from the API</h3>
+          <p className="mb-6 text-sm text-muted-foreground">Recent Events – Live Sample (refreshes every 5 min)</p>
+          {recentEvents.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                No published events yet. Run ingestion or seed to see live samples here.
+              </CardContent>
+            </Card>
+          ) : (
+            <ul className="grid gap-4 sm:grid-cols-2">
+              {recentEvents.map((event) => (
+                <Card key={event.id} className="flex flex-col">
+                  <CardHeader className="pb-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${categoryBadgeClass(event.category)}`}
+                      >
+                        {event.category ?? "Event"}
+                      </span>
+                      <span
+                        className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${confidenceBadgeClass(event.confidence_level)}`}
+                      >
+                        {event.confidence_level ?? "Medium"}
+                      </span>
+                    </div>
+                    <CardTitle className="mt-2 text-base leading-tight">{event.title ?? "Untitled"}</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      {formatRelativeTime(event.occurred_at)} · {locationLabel(event)}
+                    </p>
+                  </CardHeader>
+                  <CardContent className="mt-auto pt-0">
+                    {event.summary && (
+                      <p className="mb-3 line-clamp-3 text-sm text-muted-foreground">{event.summary}</p>
+                    )}
+                    {event.source_count > 0 && event.first_source_url ? (
+                      <a
+                        href={event.first_source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary underline hover:no-underline"
+                      >
+                        Source count: {event.source_count}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Source count: {event.source_count}</span>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <section id="quick-start" className="mb-16 scroll-mt-8">
           <h3 className="mb-4 text-xl font-semibold">API reference</h3>
 
           <h4 className="mb-2 mt-6 text-base font-medium">Events</h4>
           <p className="mb-3 text-sm text-muted-foreground">
-            Sign in, generate an API key, then call the events endpoint. Anonymous requests are rate-limited; use a key for your free tier quota.
+            Sign in, generate an API key, then call the events endpoint. Each event includes <code className="rounded bg-muted px-1">summary</code> (the &quot;why&quot; explanation). Anonymous requests are rate-limited; use a key for your free tier quota.
           </p>
           <pre className="overflow-x-auto rounded-lg border border-border bg-muted p-4 text-sm">
             <code>{CURL_EXAMPLE}</code>
           </pre>
+          <p className="mt-3 text-xs font-medium text-muted-foreground">Sample response</p>
+          <pre className="mt-1 overflow-x-auto rounded-lg border border-border bg-muted p-4 text-xs">
+            <code>{JSON.stringify(SAMPLE_RESPONSE, null, 2)}</code>
+          </pre>
           <p className="mt-2 text-xs text-muted-foreground">
-            Replace <code className="rounded bg-muted px-1">yourkey</code> with your key. Params:{" "}
+            Params:{" "}
             <code className="rounded bg-muted px-1">category</code>,{" "}
             <code className="rounded bg-muted px-1">country</code>,{" "}
             <code className="rounded bg-muted px-1">since</code>/<code className="rounded bg-muted px-1">until</code>,{" "}
             <code className="rounded bg-muted px-1">lat</code>,{" "}
             <code className="rounded bg-muted px-1">lon</code>,{" "}
             <code className="rounded bg-muted px-1">radius_km</code>,{" "}
-            <code className="rounded bg-muted px-1">limit</code> (max 100).
+            <code className="rounded bg-muted px-1">limit</code> (default 20, max 100),{" "}
+            <code className="rounded bg-muted px-1">offset</code>. Optional: <code className="rounded bg-muted px-1">X-API-Key</code> for quota.
           </p>
 
           <h4 className="mb-2 mt-6 text-base font-medium">Clusters (heat-map aggregation)</h4>

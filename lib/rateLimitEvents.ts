@@ -1,10 +1,10 @@
 /**
  * In-memory rate limiter for public /api/events endpoint.
- * 100 requests per IP per hour (configurable via env).
+ * 60 requests per IP per minute by default (configurable via env).
  */
 
-const DEFAULT_MAX = 100;
-const DEFAULT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_MAX = 60;
+const DEFAULT_WINDOW_MS = 60 * 1000; // 1 minute
 
 function getConfig() {
   const max = process.env.RATE_LIMIT_EVENTS_MAX;

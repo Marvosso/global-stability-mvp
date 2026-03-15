@@ -22,7 +22,7 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   const isReliefWeb = key.includes("reliefweb");
   const isACLED = key.includes("acled");
 
-  const summary = (item.summary ?? item.title).trim().slice(0, 5000) || item.title;
+  const rawSummary = (item.summary ?? item.title).trim().slice(0, 5000) || item.title;
 
   const rawDate = item.occurred_at ?? item.published_at;
   const occurredAt =
@@ -31,19 +31,49 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
       : new Date().toISOString();
 
   // Confidence: USGS/GDACS/FIRMS/CrisisWatch/ACLED = High; ReliefWeb/GDELT events = Medium (trusted feeds auto-publish).
+  // GDELT with no location or approximated (country centroid) → Low.
   const isAcledFeed = key === "acled";
+  const isTrustedFeed = isUSGS || isGDACS || isACLED;
+  const rawGdelt = item.raw as { no_coords?: boolean; approximated_location?: boolean } | undefined;
+  const gdeltNoLocation =
+    (isGDELT || isGdeltEvents || isGdeltEventsLive) && !(item.location?.trim());
+  const gdeltApproximatedLocation =
+    (isGDELT || isGdeltEvents || isGdeltEventsLive) && !!rawGdelt?.approximated_location;
   const confidenceLevel =
-    isUSGS || isGDACS || isFIRMS || isCrisisWatch || isAcledFeed
-      ? "High"
-      : isReliefWeb || isACLED || isGdeltEventsLive || isGdeltEvents
-        ? "Medium"
-        : isGDELT
+    gdeltNoLocation || gdeltApproximatedLocation
+      ? "Low"
+      : isUSGS || isGDACS || isFIRMS || isCrisisWatch || isAcledFeed
+        ? "High"
+        : isReliefWeb || isACLED || isGdeltEventsLive || isGdeltEvents
           ? "Medium"
-          : DEFAULT_CONFIDENCE;
+          : isGDELT
+            ? "Medium"
+            : DEFAULT_CONFIDENCE;
+
+  // "Why" summary: trusted = title/description + official report; GDELT = Goldstein + event code; else use item summary.
+  let whySummary: string;
+  if (isTrustedFeed) {
+    const firstLine = (item.summary || item.title).trim();
+    whySummary = (firstLine ? `${firstLine} – official report` : "Official report.").slice(0, 5000);
+  } else if (isGDELT || isGdeltEvents || isGdeltEventsLive) {
+    const raw = item.raw as { event_root_code?: number; goldstein_scale?: number } | undefined;
+    const goldstein = raw?.goldstein_scale;
+    const eventCode = raw?.event_root_code;
+    const gVal = typeof goldstein === "number" && Number.isFinite(goldstein) ? String(goldstein) : "n/a";
+    const eVal = typeof eventCode === "number" ? String(eventCode) : "n/a";
+    whySummary = `Reported by multiple news sources via GDELT. Goldstein scale: ${gVal}. Event code: ${eVal}.`;
+    if (gdeltNoLocation) whySummary = (whySummary + " Approximate location only.").slice(0, 5000);
+  } else {
+    whySummary =
+      gdeltNoLocation && !rawSummary.includes("Approximate location only")
+        ? `${rawSummary.trim().slice(0, 4980)} Approximate location only.`
+        : rawSummary;
+  }
+  const finalSummary = (whySummary || item.title || "Event reported.").trim().slice(0, 5000);
 
   const base: Omit<CreateDraftEventData, "subtype"> = {
     title: item.title.trim().slice(0, 500),
-    summary,
+    summary: finalSummary,
     category: item.category ?? DEFAULT_CATEGORY,
     severity: (isUSGS ? "Low" : isGDACS ? "Medium" : DEFAULT_SEVERITY) as CreateDraftEventData["severity"],
     confidence_level: confidenceLevel as CreateDraftEventData["confidence_level"],
@@ -67,7 +97,7 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
     // GDACS: category Natural Disaster (or from item); subtype from alert type / item.
     let subtype = item.subtype;
     if (subtype === undefined) {
-      const text = `${item.title} ${summary}`.toLowerCase();
+      const text = `${item.title} ${rawSummary}`.toLowerCase();
       if (text.includes("earthquake")) subtype = "Earthquake";
       else if (text.includes("cyclone") || text.includes("hurricane") || text.includes("typhoon"))
         subtype = "Cyclone";

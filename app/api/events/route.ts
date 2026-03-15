@@ -49,6 +49,7 @@ type EventRow = {
   occurred_at: string | null;
   primary_location: string | null;
   country_code: string | null;
+  feed_key: string | null;
 };
 
 export async function OPTIONS(request: NextRequest) {
@@ -104,23 +105,25 @@ export async function GET(request: NextRequest) {
 
   let categories: string[] | null = null;
   if (category?.trim()) {
-    const parts = category.split(",").map((c) => c.trim()).filter(Boolean);
-    const invalid = parts.filter((c) => !(event_category as readonly string[]).includes(c));
-    if (invalid.length > 0) {
-      return jsonWithCors(
-        { error: `Invalid category: ${invalid.join(", ")}`, code: "VALIDATION_FAILED" },
-        { status: 400 },
-        request
-      );
+    if (category.includes(",")) {
+      const parts = category.split(",").map((c) => c.trim()).filter(Boolean);
+      const invalid = parts.filter((c) => !(event_category as readonly string[]).includes(c));
+      if (invalid.length > 0) {
+        return jsonWithCors(
+          { error: `Invalid category: ${invalid.join(", ")}`, code: "VALIDATION_FAILED" },
+          { status: 400 },
+          request
+        );
+      }
+      categories = parts;
     }
-    categories = parts;
   }
 
   try {
     let query = supabaseAdmin
       .from("events")
       .select(
-        "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, country_code"
+        "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, country_code, feed_key"
       )
       .eq("status", "Published")
       .order("occurred_at", { ascending: false, nullsFirst: false });
@@ -133,6 +136,8 @@ export async function GET(request: NextRequest) {
     }
     if (categories != null && categories.length > 0) {
       query = query.in("category", categories);
+    } else if (category?.trim() && !category.includes(",")) {
+      query = query.ilike("category", `%${category.trim()}%`);
     }
     if (country?.trim()) {
       query = query.eq("country_code", country.trim().toUpperCase());
@@ -164,7 +169,7 @@ export async function GET(request: NextRequest) {
       total = list.length;
       list = list.slice(offset, offset + limit);
     } else {
-      const cols = "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, country_code";
+      const cols = "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, country_code, feed_key";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase builder accepts (columns, { count }) but types are narrow
       const { data: rows, error, count } = await (query as any).select(cols, { count: "exact" }).range(offset, offset + limit - 1);
       if (error) {
@@ -187,11 +192,11 @@ export async function GET(request: NextRequest) {
         await decrementCreditsAndLogUsage(apiKeyContext.keyId, "/api/events", requestId);
       }
       const res = jsonWithCors(
-        { data: [], total: 0, next_offset: null },
+        { data: [], total: 0, returned: 0, next_offset: null },
         { status: 200 },
         request
       );
-      res.headers.set("X-RateLimit-Limit", "100");
+      res.headers.set("X-RateLimit-Limit", "60");
       res.headers.set("X-RateLimit-Remaining", String(remaining));
       res.headers.set("X-RateLimit-Reset", String(Math.ceil(resetAtMs / 1000)));
       return res;
@@ -239,27 +244,33 @@ export async function GET(request: NextRequest) {
 
     const data = page.map((row) => {
       const coords = parsePrimaryLocation(row.primary_location);
+      const sourceList = sourcesByEvent.get(row.id) ?? [];
+      const sourcesUrls = sourceList.map((s) => s.url).filter((u): u is string => u != null && u !== "");
       return {
         id: row.id,
         title: row.title ?? "",
         category: row.category ?? "",
         subtype: row.subtype ?? null,
-        severity: row.severity ?? "",
-        confidence: row.confidence_level ?? null,
+        severity: row.severity ?? null,
+        confidence: row.confidence_level ?? "Medium",
         occurred_at: row.occurred_at ?? null,
         lat: coords?.lat ?? null,
         lon: coords?.lng ?? null,
-        sources: sourcesByEvent.get(row.id) ?? [],
+        sources: sourcesUrls,
+        feed_key: row.feed_key ?? "",
         summary: row.summary ?? null,
       };
     });
+
+    const returned = data.length;
+    console.log("[api/events]", { limit, offset, since, until, category, country, total, returned });
 
     const next_offset = offset + limit < total ? offset + limit : null;
     if (apiKeyContext) {
       await decrementCreditsAndLogUsage(apiKeyContext.keyId, "/api/events", requestId);
     }
-    const res = jsonWithCors({ data, total, next_offset }, { status: 200 }, request);
-    res.headers.set("X-RateLimit-Limit", "100");
+    const res = jsonWithCors({ data, total, returned, next_offset }, { status: 200 }, request);
+    res.headers.set("X-RateLimit-Limit", "60");
     res.headers.set("X-RateLimit-Remaining", String(remaining));
     res.headers.set("X-RateLimit-Reset", String(Math.ceil(resetAtMs / 1000)));
     return res;
