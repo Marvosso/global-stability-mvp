@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getSupabaseAuthUserForMiddleware } from "@/lib/rbac";
 import { createRequestLogger } from "@/lib/logger";
-import { unauthorized, internalError } from "@/lib/apiError";
+import { unauthorized, internalError, badRequest } from "@/lib/apiError";
 import { supabaseAdmin } from "@/app/api/_lib/db";
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+/** Must match Stripe key mode: use a test price ID (Stripe Dashboard → test mode) when using sk_test_... */
 const PRO_PRICE_ID = process.env.STRIPE_PRO_PRICE_ID ?? "price_placeholder";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -101,7 +102,11 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     if (err instanceof Stripe.errors.StripeError) {
       log.error("Stripe error", { code: err.code, message: err.message });
-      return internalError(err.message ?? "Stripe error");
+      const msg = err.message ?? "Stripe error";
+      if (err.code === "resource_missing" || err.type === "StripeInvalidRequestError") {
+        return badRequest(msg);
+      }
+      return internalError(msg);
     }
     log.error("Create checkout error", { err });
     return internalError("Failed to create checkout session");
