@@ -28,7 +28,7 @@ type SubscriptionRow = {
 function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, isLoading: sessionLoading } = useSession();
+  const { session, user, isLoading: sessionLoading } = useSession();
 
   const [apiKeyRow, setApiKeyRow] = useState<ApiKeyRow | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
@@ -109,9 +109,13 @@ function DashboardContent() {
     setUpgradeLoading(true);
     setMessage(null);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
       const res = await fetch("/api/stripe/create-checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
       });
       const data = await res.json();
