@@ -100,15 +100,76 @@ async function getSupabaseAuthUser(request: NextRequest): Promise<User | null> {
         // ignore invalid cookie
       }
     }
+    // #region agent log
+    if (typeof fetch !== "undefined") {
+      const authCookieFound = !!all.find((c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token"));
+      fetch("http://127.0.0.1:7858/ingest/4ea7f127-3afa-4a64-b2bb-235c0c1420f9", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "6a23e5" },
+        body: JSON.stringify({
+          sessionId: "6a23e5",
+          location: "rbac.ts:getSupabaseAuthUser:cookieCheck",
+          message: "Cookie check",
+          data: { cookieCount: all.length, authCookieFound, hypothesisId: "H2_H5" },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    }
+    // #endregion
   }
 
+  // #region agent log
+  if (typeof fetch !== "undefined") {
+    fetch("http://127.0.0.1:7858/ingest/4ea7f127-3afa-4a64-b2bb-235c0c1420f9", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "6a23e5" },
+      body: JSON.stringify({
+        sessionId: "6a23e5",
+        location: "rbac.ts:getSupabaseAuthUser",
+        message: "Auth token resolution",
+        data: { tokenSource, hasAccessToken: !!accessToken, hypothesisId: "H1_H2_H5" },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
   if (!accessToken) return null;
 
   try {
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
+    // #region agent log
+    if (typeof fetch !== "undefined") {
+      fetch("http://127.0.0.1:7858/ingest/4ea7f127-3afa-4a64-b2bb-235c0c1420f9", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "6a23e5" },
+        body: JSON.stringify({
+          sessionId: "6a23e5",
+          location: "rbac.ts:getSupabaseAuthUser:getUser",
+          message: "getUser result",
+          data: { gotUser: !!user, errorMessage: error?.message ?? null, hypothesisId: "H3" },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    }
+    // #endregion
     if (error || !user) return null;
     return user;
-  } catch {
+  } catch (e) {
+    // #region agent log
+    if (typeof fetch !== "undefined") {
+      fetch("http://127.0.0.1:7858/ingest/4ea7f127-3afa-4a64-b2bb-235c0c1420f9", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "6a23e5" },
+        body: JSON.stringify({
+          sessionId: "6a23e5",
+          location: "rbac.ts:getSupabaseAuthUser:catch",
+          message: "getUser threw",
+          data: { err: String(e), hypothesisId: "H3" },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    }
+    // #endregion
     return null;
   }
 }
