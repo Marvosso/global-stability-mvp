@@ -340,40 +340,46 @@ function DashboardContent() {
           </section>
         )}
 
-        {isAdmin && (
-          <Card className="mb-8 border-amber-500/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Admin tools</CardTitle>
-              <CardDescription>
-                Fill <code className="rounded bg-muted px-1 text-xs">events.lat</code> /{" "}
-                <code className="rounded bg-muted px-1 text-xs">lon</code> from existing locations (runs on
-                server with your token).
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={backfillLoading || !session?.access_token}
-                onClick={handleBackfillGeo}
-              >
-                {backfillLoading ? (
-                  <>
-                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    Running backfill…
-                  </>
-                ) : (
-                  "Run geo backfill"
-                )}
-              </Button>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Uses the same login as API routes: the browser does not send localStorage to the server unless
-                you pass the Bearer token (this button does).
+        <Card className="mb-8 border-amber-500/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Geo backfill</CardTitle>
+            <CardDescription>
+              Fill <code className="rounded bg-muted px-1 text-xs">events.lat</code> /{" "}
+              <code className="rounded bg-muted px-1 text-xs">lon</code> from existing locations. Requires{" "}
+              <strong>Admin</strong> in Supabase (<code className="rounded bg-muted px-1 text-xs">app_metadata.role</code>{" "}
+              = <code className="rounded bg-muted px-1 text-xs">admin</code>).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!isAdmin && (
+              <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
+                Your JWT does not show role &quot;admin&quot; yet — the button will return 401/403 until you set{" "}
+                <code className="rounded bg-muted px-1">app_metadata.role</code> to{" "}
+                <code className="rounded bg-muted px-1">admin</code> for this user in Supabase Auth, then sign out
+                and back in.
               </p>
-            </CardContent>
-          </Card>
-        )}
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={backfillLoading || !session?.access_token}
+              onClick={handleBackfillGeo}
+            >
+              {backfillLoading ? (
+                <>
+                  <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Running backfill…
+                </>
+              ) : (
+                "Run geo backfill"
+              )}
+            </Button>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Sends your session token to the API (Bearer) so the server can authenticate you.
+            </p>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="pb-2">
