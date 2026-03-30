@@ -13,6 +13,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 const INGEST_API_KEY = process.env.INGEST_API_KEY;
 
+/** Batch/single ingest: geo (lat/lon + primary_location) is resolved in `processIngestBatch` / `mapIngestItemToDraftData`
+ *  and feed-specific parsers (e.g. `lib/ingest/gdeltDaily.ts` for GDELT ActionGeo → Actor1 → Actor2 → centroid → title fallback). */
+
 export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const log = createRequestLogger({ requestId });

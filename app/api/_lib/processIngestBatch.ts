@@ -1,5 +1,5 @@
 import type { CreateDraftEventData, IngestItem } from "./validation";
-import { coordsFromIngestItem } from "@/lib/geoResolve";
+import { coordsFromIngestItem, extractCoordinatesFromText } from "@/lib/geoResolve";
 import {
   createDraftEventAndMaybeCandidate,
   CreateDraftEventError,
@@ -72,7 +72,12 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   }
   const finalSummary = (whySummary || item.title || "Event reported.").trim().slice(0, 5000);
 
-  const coords = coordsFromIngestItem(item);
+  let coords = coordsFromIngestItem(item);
+  if (!coords) {
+    coords =
+      extractCoordinatesFromText(item.title) ??
+      extractCoordinatesFromText(rawSummary);
+  }
   const primaryLoc =
     (item.location?.trim() && item.location.trim().slice(0, 500)) ||
     (coords ? `${coords.lat},${coords.lon}`.slice(0, 500) : undefined);

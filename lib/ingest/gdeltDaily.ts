@@ -10,7 +10,7 @@ import AdmZip from "adm-zip";
 import type { IngestItem } from "@/app/api/_lib/validation";
 import { processIngestBatch } from "@/app/api/_lib/processIngestBatch";
 import { getCountryCentroid, centroidToPrimaryLocation } from "@/lib/countryCentroids";
-import { resolveTitleCentroidFallback } from "@/lib/geoResolve";
+import { extractCoordinatesFromText, resolveTitleCentroidFallback } from "@/lib/geoResolve";
 
 const FEED_KEY = "gdelt_events";
 const SOURCE_NAME = "GDELT";
@@ -312,6 +312,15 @@ export async function ingestGDELTDaily(
         lat = centroid[0];
         lng = centroid[1];
         approximatedLocation = true;
+      }
+    }
+    if (!location) {
+      const fromTitleText = extractCoordinatesFromText(title);
+      if (fromTitleText) {
+        lat = fromTitleText.lat;
+        lng = fromTitleText.lon;
+        location = `${lat},${lng}`;
+        approximatedLocation = false;
       }
     }
     if (!location) {

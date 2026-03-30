@@ -58,7 +58,8 @@ export default function MapPage() {
               e.lat != null &&
               e.lon != null &&
               Number.isFinite(e.lat) &&
-              Number.isFinite(e.lon)
+              Number.isFinite(e.lon) &&
+              !(e.lat === 0 && e.lon === 0)
           )
           .map((e: Record<string, unknown>) => ({
             id: e.id,

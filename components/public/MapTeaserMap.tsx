@@ -8,14 +8,16 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
+import { createMapClusterIcon } from "@/lib/mapClusterIcon";
 import { getCategoryColor } from "@/lib/mapMarkerStyle";
+import { TILE_CARTO_VOYAGER } from "@/lib/mapTiles";
 import type { SimpleEvent } from "@/components/public/SimpleEventsMap";
 
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
-const DEFAULT_CENTER: [number, number] = [0, 0];
+const DEFAULT_CENTER: [number, number] = [20, 0];
 const DEFAULT_ZOOM = 2;
 
 const iconCache = new Map<string, L.DivIcon>();
@@ -50,9 +52,12 @@ export function MapTeaserMap({ events }: MapTeaserMapProps) {
       dragging={true}
     >
       <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        url={TILE_CARTO_VOYAGER.url}
+        attribution={TILE_CARTO_VOYAGER.attribution}
+        subdomains={TILE_CARTO_VOYAGER.subdomains}
+        maxZoom={TILE_CARTO_VOYAGER.maxZoom}
       />
-      <MarkerClusterGroup chunkedLoading>
+      <MarkerClusterGroup chunkedLoading iconCreateFunction={createMapClusterIcon}>
         {events.map((ev) => (
           <Marker
             key={ev.id}

@@ -52,6 +52,22 @@ export const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   SSD: [7.0, 30.0],
   MM: [21.0, 96.0],
   MMR: [21.0, 96.0],
+  GB: [54.0, -2.0],
+  GBR: [54.0, -2.0],
+  JP: [36.0, 138.0],
+  JPN: [36.0, 138.0],
+  KR: [36.5, 127.5],
+  KOR: [36.5, 127.5],
+  MX: [23.0, -102.0],
+  MEX: [23.0, -102.0],
+  BR: [-10.0, -55.0],
+  BRA: [-10.0, -55.0],
+  CO: [4.0, -72.0],
+  COL: [4.0, -72.0],
+  PL: [52.0, 19.0],
+  POL: [52.0, 19.0],
+  VE: [8.0, -66.0],
+  VEN: [8.0, -66.0],
 };
 
 /** Normalize country code to uppercase; accept 2- or 3-letter. Returns null if empty. */
@@ -98,13 +114,28 @@ const TITLE_COUNTRY_HINTS: { pattern: RegExp; code: string }[] = [
   { pattern: /\bpakistan\b|\bislamabad\b|\bkarachi\b/i, code: "PK" },
   { pattern: /\bindia\b|\bnew delhi\b|\bmumbai\b/i, code: "IN" },
   { pattern: /\bchina\b|\bbeijing\b|\bchinese\b/i, code: "CN" },
+  { pattern: /\buk\b|\bbritain\b|\blondon\b|\bengland\b|\bscotland\b|\bwales\b/i, code: "GB" },
+  { pattern: /\bjapan\b|\btokyo\b|\bosaka\b|\bjapanese\b/i, code: "JP" },
+  { pattern: /\bkorea\b|\bseoul\b|\bpyongyang\b/i, code: "KR" },
+  { pattern: /\bmexico\b|\bmexican\b|\bciudad\b/i, code: "MX" },
+  { pattern: /\bbrazil\b|\bbrasília\b|\bsão paulo\b|\bra de janeiro\b/i, code: "BR" },
+  { pattern: /\bcolombia\b|\bbogotá\b|\bmedellín\b/i, code: "CO" },
+  { pattern: /\bpoland\b|\bwarsaw\b|\bkrakow\b/i, code: "PL" },
+  { pattern: /\bvenezuela\b|\bcaracas\b/i, code: "VE" },
+  { pattern: /\bfrance\b|\bparis\b|\bfrench\b/i, code: "FR" },
+  { pattern: /\bgermany\b|\bberlin\b|\bmunich\b|\bgerman\b/i, code: "DE" },
 ];
 
-export function inferCountryFromTitle(title: string | null | undefined): string | null {
-  const s = title?.trim();
+/** Scan any free text (title, summary, or both) for country/region hints. */
+export function inferCountryFromText(text: string | null | undefined): string | null {
+  const s = text?.trim();
   if (!s) return null;
   for (const { pattern, code } of TITLE_COUNTRY_HINTS) {
     if (pattern.test(s)) return code;
   }
   return null;
+}
+
+export function inferCountryFromTitle(title: string | null | undefined): string | null {
+  return inferCountryFromText(title);
 }

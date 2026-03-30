@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
   const { data: rows, error } = await supabaseAdmin
     .from("events")
-    .select("id, title, primary_location, country_code, confidence_level")
+    .select("id, title, summary, primary_location, country_code, confidence_level")
     .eq("status", "Published")
     .is("lat", null)
     .limit(5000);
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
   for (const row of rows ?? []) {
     const resolved = resolveCoordsForBackfill({
       title: row.title,
+      summary: row.summary,
       primary_location: row.primary_location,
       country_code: row.country_code,
     });
@@ -58,6 +59,13 @@ export async function POST(request: NextRequest) {
     updated,
     scanned: (rows ?? []).length,
     message:
-      "Rows with lat IS NULL were scanned. Verify with: SELECT COUNT(*) AS total_published, COUNT(CASE WHEN lat IS NOT NULL AND lon IS NOT NULL THEN 1 END) AS with_geo FROM events WHERE status = 'Published' AND occurred_at > NOW() - INTERVAL '14 days';",
+      "Published rows with lat IS NULL were scanned (max 5000 per run). Re-run to process more if needed.",
+    verification_sql: `SELECT 
+  COUNT(*) AS total_published,
+  COUNT(CASE WHEN lat IS NOT NULL AND lon IS NOT NULL THEN 1 END) AS with_geo,
+  COUNT(CASE WHEN category ILIKE '%conflict%' OR category ILIKE '%tension%' THEN 1 END) AS conflict_events
+FROM events 
+WHERE status = 'Published' 
+AND occurred_at > NOW() - INTERVAL '14 days';`,
   });
 }
