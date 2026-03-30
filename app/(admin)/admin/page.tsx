@@ -5,11 +5,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { GeoBackfillPanel } from "@/components/GeoBackfillPanel";
 
 export default function AdminPage() {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold">Dashboard</h2>
+      <GeoBackfillPanel />
       <Card>
         <CardHeader>
           <CardTitle>Welcome</CardTitle>

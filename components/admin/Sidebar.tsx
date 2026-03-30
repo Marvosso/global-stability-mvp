@@ -37,6 +37,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </Link>
           </Button>
           <Button variant="ghost" className="justify-start" asChild>
+            <Link href="/admin#geo-backfill" onClick={onClose}>
+              Geo backfill
+            </Link>
+          </Button>
+          <Button variant="ghost" className="justify-start" asChild>
             <Link href="/admin/review" onClick={onClose}>
               Review
             </Link>
