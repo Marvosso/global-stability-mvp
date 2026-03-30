@@ -257,6 +257,7 @@ export async function GET(request: NextRequest) {
         severity: row.severity ?? null,
         confidence: row.confidence_level ?? "Medium",
         occurred_at: row.occurred_at ?? null,
+        primary_location: row.primary_location ?? null,
         lat: coords?.lat ?? null,
         lon: coords?.lng ?? null,
         sources: sourcesUrls,

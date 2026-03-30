@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import type { SimpleEvent } from "@/components/public/SimpleEventsMap";
+import { coordsForPublicMapEvent } from "@/lib/mapEventNormalize";
 
 const MapTeaserMap = dynamic(
   () =>
@@ -17,33 +18,29 @@ const MapTeaserMap = dynamic(
 const MAX_MARKERS = 20;
 
 function normalizeEvents(data: unknown[]): SimpleEvent[] {
-  return data
-    .filter((e: unknown) => {
-      const o = e as Record<string, unknown>;
-      const lat = o?.lat;
-      const lon = o?.lon;
-      return (
-        lat != null &&
-        lon != null &&
-        Number.isFinite(Number(lat)) &&
-        Number.isFinite(Number(lon))
-      );
-    })
-    .slice(0, MAX_MARKERS)
-    .map((e: unknown) => {
-      const o = e as Record<string, unknown>;
-      return {
-        id: String(o.id),
-        title: String(o.title ?? ""),
-        category: (o.category as string) ?? null,
-        occurred_at: (o.occurred_at as string) ?? null,
-        confidence: (o.confidence as string) ?? null,
-        summary: (o.summary as string) ?? null,
-        sources: Array.isArray(o.sources) ? (o.sources as string[]) : [],
-        lat: Number(o.lat),
-        lon: Number(o.lon),
-      };
+  const out: SimpleEvent[] = [];
+  for (const raw of data) {
+    if (out.length >= MAX_MARKERS) break;
+    const o = raw as Record<string, unknown>;
+    const coords = coordsForPublicMapEvent({
+      lat: o.lat,
+      lon: o.lon,
+      primary_location: o.primary_location,
     });
+    if (!coords) continue;
+    out.push({
+      id: String(o.id),
+      title: String(o.title ?? ""),
+      category: (o.category as string) ?? null,
+      occurred_at: (o.occurred_at as string) ?? null,
+      confidence: (o.confidence as string) ?? null,
+      summary: (o.summary as string) ?? null,
+      sources: Array.isArray(o.sources) ? (o.sources as string[]) : [],
+      lat: coords.lat,
+      lon: coords.lon,
+    });
+  }
+  return out;
 }
 
 export function MapTeaserSection() {
@@ -86,7 +83,7 @@ export function MapTeaserSection() {
         See It Live – Recent Crisis Events on Map
       </h3>
       <p className="mb-4 text-sm text-muted-foreground">
-        Recent events with location data (sample). Click markers for details.
+        Recent published events with coordinates (sample). Click markers for details.
       </p>
 
       <div className="rounded-lg border border-border overflow-hidden bg-muted/30">
@@ -94,7 +91,7 @@ export function MapTeaserSection() {
           {loading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/50">
               <div className="rounded-lg border border-border bg-background px-4 py-2 text-sm shadow">
-                Loading map…
+                Loading events…
               </div>
             </div>
           )}
@@ -103,17 +100,18 @@ export function MapTeaserSection() {
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
-          {!loading && !hasGeo && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/30">
-              <p className="text-sm text-muted-foreground text-center px-4">
-                Map loading – recent events have location data coming soon
-              </p>
-            </div>
-          )}
-          {!loading && hasGeo && (
-            <div className="h-full w-full">
-              <MapTeaserMap events={events} />
-            </div>
+          {!loading && !error && (
+            <>
+              <div className="h-full w-full">
+                <MapTeaserMap events={events} />
+              </div>
+              {!hasGeo && (
+                <div className="absolute left-3 right-3 bottom-3 z-[1000] rounded-md border border-border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow backdrop-blur">
+                  No markers yet: published events need latitude/longitude or a parseable
+                  location. Use admin geo backfill or ingest feeds that supply coordinates.
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
