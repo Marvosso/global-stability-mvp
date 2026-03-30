@@ -34,6 +34,7 @@ function DashboardContent() {
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
   const [planLoading, setPlanLoading] = useState(true);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [backfillLoading, setBackfillLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "canceled" | "error"; text: string } | null>(null);
 
   const fetchPlan = useCallback(async (userId: string) => {
@@ -140,6 +141,55 @@ function DashboardContent() {
       setMessage({ type: "error", text: "Network error" });
     } finally {
       setUpgradeLoading(false);
+    }
+  };
+
+  const isAdmin =
+    String(user?.app_metadata?.role ?? "")
+      .trim()
+      .toLowerCase() === "admin";
+
+  const handleBackfillGeo = async () => {
+    if (!session?.access_token) {
+      setMessage({ type: "error", text: "No session token. Try signing out and back in." });
+      return;
+    }
+    setBackfillLoading(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/backfill-geo", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        updated?: number;
+        scanned?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        const hint =
+          res.status === 401
+            ? " Not logged in for API, or missing app_metadata.role — add role \"admin\" in Supabase Auth for this user."
+            : res.status === 403
+              ? " Your account needs Admin role in Supabase (app_metadata.role = admin)."
+              : "";
+        setMessage({
+          type: "error",
+          text: (data?.error ?? `Request failed (${res.status})`) + hint,
+        });
+        return;
+      }
+      setMessage({
+        type: "success",
+        text: `Geo backfill done: updated ${data.updated ?? 0} rows (scanned ${data.scanned ?? 0}).`,
+      });
+    } catch {
+      setMessage({ type: "error", text: "Network error" });
+    } finally {
+      setBackfillLoading(false);
     }
   };
 
@@ -288,6 +338,41 @@ function DashboardContent() {
               </Card>
             )}
           </section>
+        )}
+
+        {isAdmin && (
+          <Card className="mb-8 border-amber-500/30">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Admin tools</CardTitle>
+              <CardDescription>
+                Fill <code className="rounded bg-muted px-1 text-xs">events.lat</code> /{" "}
+                <code className="rounded bg-muted px-1 text-xs">lon</code> from existing locations (runs on
+                server with your token).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={backfillLoading || !session?.access_token}
+                onClick={handleBackfillGeo}
+              >
+                {backfillLoading ? (
+                  <>
+                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Running backfill…
+                  </>
+                ) : (
+                  "Run geo backfill"
+                )}
+              </Button>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Uses the same login as API routes: the browser does not send localStorage to the server unless
+                you pass the Bearer token (this button does).
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         <Card>
