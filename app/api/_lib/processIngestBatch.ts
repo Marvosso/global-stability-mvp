@@ -1,4 +1,5 @@
 import type { CreateDraftEventData, IngestItem } from "./validation";
+import { coordsFromIngestItem } from "@/lib/geoResolve";
 import {
   createDraftEventAndMaybeCandidate,
   CreateDraftEventError,
@@ -71,6 +72,11 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
   }
   const finalSummary = (whySummary || item.title || "Event reported.").trim().slice(0, 5000);
 
+  const coords = coordsFromIngestItem(item);
+  const primaryLoc =
+    (item.location?.trim() && item.location.trim().slice(0, 500)) ||
+    (coords ? `${coords.lat},${coords.lon}`.slice(0, 500) : undefined);
+
   const base: Omit<CreateDraftEventData, "subtype"> = {
     title: item.title.trim().slice(0, 500),
     summary: finalSummary,
@@ -82,7 +88,8 @@ export function mapIngestItemToDraftData(item: IngestItem): CreateDraftEventData
     source_name: item.source_name,
     occurred_at: occurredAt,
     ...(item.feed_key && { feed_key: item.feed_key }),
-    ...(item.location?.trim() && { primary_location: item.location.trim().slice(0, 500) }),
+    ...(primaryLoc && { primary_location: primaryLoc }),
+    ...(coords && { lat: coords.lat, lon: coords.lon }),
   };
 
   if (isUSGS) {

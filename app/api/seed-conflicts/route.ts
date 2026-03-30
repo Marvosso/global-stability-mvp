@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/app/api/_lib/db";
 import { getOrCreateSourceByDomain } from "@/app/api/_lib/getOrCreateSourceByDomain";
 import { normalizeDomainFromUrl } from "@/lib/domain";
 import { unauthorized, internalError } from "@/lib/apiError";
+import { parsePrimaryLocation } from "@/lib/eventCoordinates";
 
 const INGEST_API_KEY = process.env.INGEST_API_KEY;
 const FEED_KEY = "manual_test";
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest) {
         }));
       if (!source) continue;
 
+      const coords = parsePrimaryLocation(ev.primary_location);
       const { data: event, error: insertErr } = await supabaseAdmin
         .from("events")
         .insert({
@@ -118,6 +120,8 @@ export async function POST(request: NextRequest) {
           occurred_at: last7DaysIso(),
           ended_at: null,
           primary_location: ev.primary_location,
+          lat: coords?.lat ?? null,
+          lon: coords?.lng ?? null,
           country_code: ev.country_code,
           admin1: null,
           feed_key: FEED_KEY,

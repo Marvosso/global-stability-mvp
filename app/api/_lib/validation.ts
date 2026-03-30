@@ -39,6 +39,8 @@ export const createDraftEventSchema = z.object({
   occurred_at: z.string().datetime().optional(),
   ended_at: z.string().datetime().optional(),
   primary_location: z.string().optional(),
+  lat: z.number().min(-90).max(90).optional().nullable(),
+  lon: z.number().min(-180).max(180).optional().nullable(),
   requires_dual_review: z.boolean().optional(),
   source_url: z.string().url().optional(),
   source_name: z.string().max(200).optional(),
@@ -267,6 +269,7 @@ export const ingestItemSchema = z.object({
   subtype: eventSubtypeEnum.optional(),
   lat: z.union([z.number(), z.string()]).optional(),
   lng: z.union([z.number(), z.string()]).optional(),
+  lon: z.union([z.number(), z.string()]).optional(),
   tags: z.union([z.array(z.string()), z.string()]).optional(),
   raw: z.unknown().optional(),
 });

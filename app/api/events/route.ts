@@ -6,7 +6,7 @@ import { rateLimitExceeded, paymentRequired } from "@/lib/apiError";
 import { createRequestLogger } from "@/lib/logger";
 import { checkEvents } from "@/lib/rateLimitEvents";
 import { getApiKeyContextOptional, decrementCreditsAndLogUsage } from "@/lib/apiKey";
-import { parsePrimaryLocation } from "@/lib/eventCoordinates";
+import { coordsFromEventRow } from "@/lib/eventCoordinates";
 import { distanceKm } from "@/lib/eventCoordinates";
 import type { ApiKeyContextWithCredits } from "@/lib/apiKey";
 
@@ -48,6 +48,8 @@ type EventRow = {
   confidence_level: string | null;
   occurred_at: string | null;
   primary_location: string | null;
+  lat: number | null;
+  lon: number | null;
   country_code: string | null;
   feed_key: string | null;
 };
@@ -123,7 +125,7 @@ export async function GET(request: NextRequest) {
     let query = supabaseAdmin
       .from("events")
       .select(
-        "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, country_code, feed_key"
+        "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, lat, lon, country_code, feed_key"
       )
       .eq("status", "Published")
       .order("occurred_at", { ascending: false, nullsFirst: false });
@@ -162,14 +164,15 @@ export async function GET(request: NextRequest) {
       }
       list = (rows ?? []) as EventRow[];
       list = list.filter((row) => {
-        const coords = parsePrimaryLocation(row.primary_location);
+        const coords = coordsFromEventRow(row);
         if (!coords) return false;
         return distanceKm(lat, lon, coords.lat, coords.lng) <= radius_km!;
       });
       total = list.length;
       list = list.slice(offset, offset + limit);
     } else {
-      const cols = "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, country_code, feed_key";
+      const cols =
+        "id, title, summary, category, subtype, severity, confidence_level, occurred_at, primary_location, lat, lon, country_code, feed_key";
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase builder accepts (columns, { count }) but types are narrow
       const { data: rows, error, count } = await (query as any).select(cols, { count: "exact" }).range(offset, offset + limit - 1);
       if (error) {
@@ -243,7 +246,7 @@ export async function GET(request: NextRequest) {
     }
 
     const data = page.map((row) => {
-      const coords = parsePrimaryLocation(row.primary_location);
+      const coords = coordsFromEventRow(row);
       const sourceList = sourcesByEvent.get(row.id) ?? [];
       const sourcesUrls = sourceList.map((s) => s.url).filter((u): u is string => u != null && u !== "");
       return {

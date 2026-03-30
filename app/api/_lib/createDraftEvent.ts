@@ -10,6 +10,29 @@ import { parsePrimaryLocation, distanceKm } from "@/lib/eventCoordinates";
 import { matchIncident, type CandidateIncident } from "@/lib/incidents/matchIncident";
 import { reverseGeocode } from "@/lib/geocode/reverseGeocode";
 
+/** Merge primary_location with lat/lon so dedup/geocode work when only one form is sent. */
+function normalizeEventGeo(input: CreateDraftEventData): CreateDraftEventData {
+  let primary_location = input.primary_location?.trim() || undefined;
+  let lat = input.lat ?? null;
+  let lon = input.lon ?? null;
+  if (!primary_location && lat != null && lon != null) {
+    primary_location = `${lat},${lon}`;
+  }
+  if (primary_location && (lat == null || lon == null)) {
+    const p = parsePrimaryLocation(primary_location);
+    if (p) {
+      if (lat == null) lat = p.lat;
+      if (lon == null) lon = p.lng;
+    }
+  }
+  return {
+    ...input,
+    primary_location,
+    lat: lat ?? undefined,
+    lon: lon ?? undefined,
+  };
+}
+
 export type CreateDraftEventParams = {
   data: CreateDraftEventData;
   createdBy: string | null;
@@ -371,7 +394,8 @@ function getAutoPublishRule(
 export async function createDraftEventAndMaybeCandidate(
   params: CreateDraftEventParams
 ): Promise<CreateDraftEventResult> {
-  const { data, createdBy } = params;
+  const { createdBy } = params;
+  const data = normalizeEventGeo(params.data);
 
   if (data.actors?.length) {
     const requestedActorIds = [...new Set(data.actors.map((a) => a.actor_id))];
@@ -456,6 +480,8 @@ export async function createDraftEventAndMaybeCandidate(
     occurred_at: data.occurred_at ?? null,
     ended_at: data.ended_at ?? null,
     primary_location: data.primary_location ?? null,
+    lat: data.lat ?? null,
+    lon: data.lon ?? null,
     country_code,
     admin1,
     ...(data.feed_key != null && data.feed_key !== "" && { feed_key: data.feed_key }),

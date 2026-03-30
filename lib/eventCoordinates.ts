@@ -88,6 +88,29 @@ export function parsePrimaryLocation(
   return { lat, lng };
 }
 
+/** Prefer explicit lat/lon columns; fall back to parsing primary_location. */
+export function coordsFromEventRow(row: {
+  primary_location?: string | null;
+  lat?: number | null;
+  lon?: number | null;
+}): { lat: number; lng: number } | null {
+  const la = row.lat;
+  const lo = row.lon;
+  if (
+    la != null &&
+    lo != null &&
+    Number.isFinite(Number(la)) &&
+    Number.isFinite(Number(lo)) &&
+    Number(la) >= -90 &&
+    Number(la) <= 90 &&
+    Number(lo) >= -180 &&
+    Number(lo) <= 180
+  ) {
+    return { lat: Number(la), lng: Number(lo) };
+  }
+  return parsePrimaryLocation(row.primary_location ?? null);
+}
+
 /** Earth radius in km for Haversine. */
 const EARTH_RADIUS_KM = 6371;
 

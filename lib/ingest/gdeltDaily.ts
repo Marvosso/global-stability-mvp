@@ -10,6 +10,7 @@ import AdmZip from "adm-zip";
 import type { IngestItem } from "@/app/api/_lib/validation";
 import { processIngestBatch } from "@/app/api/_lib/processIngestBatch";
 import { getCountryCentroid, centroidToPrimaryLocation } from "@/lib/countryCentroids";
+import { resolveTitleCentroidFallback } from "@/lib/geoResolve";
 
 const FEED_KEY = "gdelt_events";
 const SOURCE_NAME = "GDELT";
@@ -55,6 +56,31 @@ function getCol(row: string[], i: number): string {
 function parseNum(s: string): number {
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : NaN;
+}
+
+/** Try GDELT Actor2 geo columns (layout varies slightly by export). */
+function pickActor2LatLon(row: string[]): { lat: number; lng: number } | null {
+  const pairs: readonly (readonly [number, number])[] = [
+    [48, 49],
+    [50, 51],
+    [44, 45],
+  ];
+  for (const [i, j] of pairs) {
+    if (row.length <= j) continue;
+    const la = parseNum(getCol(row, i));
+    const lo = parseNum(getCol(row, j));
+    if (
+      Number.isFinite(la) &&
+      Number.isFinite(lo) &&
+      la >= -90 &&
+      la <= 90 &&
+      lo >= -180 &&
+      lo <= 180
+    ) {
+      return { lat: la, lng: lo };
+    }
+  }
+  return null;
 }
 
 /** SQLDATE YYYYMMDD -> ISO date string. */
@@ -233,30 +259,75 @@ export async function ingestGDELTDaily(
     const actionLng = parseNum(getCol(row, IDX.ActionGeo_Long));
     const actor1Lat = parseNum(getCol(row, IDX.Actor1Geo_Lat));
     const actor1Lng = parseNum(getCol(row, IDX.Actor1Geo_Long));
-    const lat = Number.isFinite(actionLat) && actionLat >= -90 && actionLat <= 90
-      ? actionLat
-      : Number.isFinite(actor1Lat) && actor1Lat >= -90 && actor1Lat <= 90
-        ? actor1Lat
-        : NaN;
-    const lng = Number.isFinite(actionLng) && actionLng >= -180 && actionLng <= 180
-      ? actionLng
-      : Number.isFinite(actor1Lng) && actor1Lng >= -180 && actor1Lng <= 180
-        ? actor1Lng
-        : NaN;
-    const validLatLon =
-      Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-    let location: string | undefined = validLatLon ? `${lat},${lng}` : undefined;
-    if (!location) {
-      const countryCode = getCol(row, IDX.ActionGeo_CountryCode) || getCol(row, 43);
-      const centroid = getCountryCentroid(countryCode);
-      if (centroid) location = centroidToPrimaryLocation(centroid);
+
+    let lat = NaN;
+    let lng = NaN;
+    if (
+      Number.isFinite(actionLat) &&
+      actionLat >= -90 &&
+      actionLat <= 90 &&
+      Number.isFinite(actionLng) &&
+      actionLng >= -180 &&
+      actionLng <= 180
+    ) {
+      lat = actionLat;
+      lng = actionLng;
+    } else if (
+      Number.isFinite(actor1Lat) &&
+      actor1Lat >= -90 &&
+      actor1Lat <= 90 &&
+      Number.isFinite(actor1Lng) &&
+      actor1Lng >= -180 &&
+      actor1Lng <= 180
+    ) {
+      lat = actor1Lat;
+      lng = actor1Lng;
+    } else {
+      const a2 = pickActor2LatLon(row);
+      if (a2) {
+        lat = a2.lat;
+        lng = a2.lng;
+      }
     }
+
+    const validLatLon =
+      Number.isFinite(lat) &&
+      Number.isFinite(lng) &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180;
+
+    let location: string | undefined = validLatLon ? `${lat},${lng}` : undefined;
+    let approximatedLocation = false;
 
     const occurredAt = sqlDateToIso(sqlDate);
     const title = [actor1, action, actor2].filter(Boolean).join(" ").trim() || "GDELT event";
-    const approximatedLocation = !!location && !validLatLon;
+
+    if (!location) {
+      const countryCode = getCol(row, IDX.ActionGeo_CountryCode) || getCol(row, 43);
+      const centroid = getCountryCentroid(countryCode);
+      if (centroid) {
+        location = centroidToPrimaryLocation(centroid);
+        lat = centroid[0];
+        lng = centroid[1];
+        approximatedLocation = true;
+      }
+    }
+    if (!location) {
+      const tf = resolveTitleCentroidFallback(title);
+      if (tf) {
+        lat = tf.lat;
+        lng = tf.lon;
+        location = `${lat},${lng}`;
+        approximatedLocation = true;
+      }
+    }
+
     let summary = title;
-    if (approximatedLocation || !location) summary = (summary + " Approximate location only.").slice(0, 5000);
+    if ((approximatedLocation || !location) && !summary.includes("Approximate location only")) {
+      summary = (summary + " Approximate location only.").slice(0, 5000);
+    }
     const srcUrl = sourceUrl(globalEventId || crypto.randomUUID(), sqlDate || yyyymmdd);
 
     if (!title.trim()) {
@@ -280,12 +351,15 @@ export async function ingestGDELTDaily(
       occurred_at: occurredAt ?? undefined,
       published_at: occurredAt ?? undefined,
       location,
+      ...(Number.isFinite(lat) && Number.isFinite(lng)
+        ? { lat, lng: lng }
+        : {}),
       category,
       raw: {
         event_root_code: eventRootCode,
         goldstein_scale: goldsteinScale,
         num_mentions: numMentions,
-        no_coords: !validLatLon,
+        no_coords: !location,
         approximated_location: approximatedLocation,
       },
     });
