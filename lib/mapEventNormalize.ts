@@ -1,31 +1,25 @@
-import { parsePrimaryLocation } from "@/lib/eventCoordinates";
+import { coordsForPublicListing } from "@/lib/geoResolve";
 
 /**
  * Derive display coordinates for map UIs from GET /api/events rows.
- * Uses lat/lon when present; otherwise parses primary_location (same rules as the API).
+ * Uses the same resolution as the API: exact coords, primary_location, country_code, text inference.
  */
 export function coordsForPublicMapEvent(e: {
   lat?: unknown;
   lon?: unknown;
   primary_location?: unknown;
+  title?: unknown;
+  summary?: unknown;
+  country_code?: unknown;
 }): { lat: number; lon: number } | null {
-  const lat = e.lat;
-  const lon = e.lon;
-  if (
-    lat != null &&
-    lon != null &&
-    Number.isFinite(Number(lat)) &&
-    Number.isFinite(Number(lon))
-  ) {
-    const la = Number(lat);
-    const lo = Number(lon);
-    if (la === 0 && lo === 0) return null;
-    return { lat: la, lon: lo };
-  }
-  const pl =
-    typeof e.primary_location === "string"
-      ? parsePrimaryLocation(e.primary_location)
-      : null;
-  if (pl) return { lat: pl.lat, lon: pl.lng };
-  return null;
+  const c = coordsForPublicListing({
+    lat: e.lat as number | null,
+    lon: e.lon as number | null,
+    primary_location: typeof e.primary_location === "string" ? e.primary_location : null,
+    title: typeof e.title === "string" ? e.title : null,
+    summary: typeof e.summary === "string" ? e.summary : null,
+    country_code: typeof e.country_code === "string" ? e.country_code : null,
+  });
+  if (!c) return null;
+  return { lat: c.lat, lon: c.lng };
 }

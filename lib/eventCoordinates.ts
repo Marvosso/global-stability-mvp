@@ -88,7 +88,10 @@ export function parsePrimaryLocation(
   return { lat, lng };
 }
 
-/** Prefer explicit lat/lon columns; fall back to parsing primary_location. */
+/**
+ * Strict coords: DB lat/lon columns or parseable "lat,lng" primary_location only.
+ * For public maps and APIs, use `coordsForPublicListing` in geoResolve (also uses country_code + title/summary).
+ */
 export function coordsFromEventRow(row: {
   primary_location?: string | null;
   lat?: number | null;

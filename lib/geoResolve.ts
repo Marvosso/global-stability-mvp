@@ -221,3 +221,62 @@ export function resolveCoordsForBackfill(row: {
   }
   return null;
 }
+
+export type PublicListingCoordRow = {
+  primary_location?: string | null;
+  lat?: number | null;
+  lon?: number | null;
+  country_code?: string | null;
+  title?: string | null;
+  summary?: string | null;
+};
+
+/**
+ * Resolve coordinates for public list/map APIs and cluster bucketing.
+ * Order: DB lat/lon → parsed primary_location → decimal coords in text → country_code centroid
+ * → country inferred from title/summary → keyword/regional fallbacks (e.g. Iran, Tehran → Iran area).
+ * Aligns with backfill heuristics so events with only geographic text still plot approximately.
+ */
+export function coordsForPublicListing(row: PublicListingCoordRow): { lat: number; lng: number } | null {
+  const la = row.lat;
+  const lo = row.lon;
+  if (
+    la != null &&
+    lo != null &&
+    Number.isFinite(Number(la)) &&
+    Number.isFinite(Number(lo)) &&
+    Number(la) >= -90 &&
+    Number(la) <= 90 &&
+    Number(lo) >= -180 &&
+    Number(lo) <= 180
+  ) {
+    if (Number(la) === 0 && Number(lo) === 0) return null;
+    return { lat: Number(la), lng: Number(lo) };
+  }
+
+  const parsed = parsePrimaryLocation(row.primary_location);
+  if (parsed) return { lat: parsed.lat, lng: parsed.lng };
+
+  const blob = [row.title, row.summary].filter(Boolean).join("\n");
+  const fromTitle = extractCoordinatesFromText(row.title);
+  if (fromTitle) return { lat: fromTitle.lat, lng: fromTitle.lon };
+  const fromSummary = extractCoordinatesFromText(row.summary);
+  if (fromSummary) return { lat: fromSummary.lat, lng: fromSummary.lon };
+  const fromBlob = extractCoordinatesFromText(blob);
+  if (fromBlob) return { lat: fromBlob.lat, lng: fromBlob.lon };
+
+  const cc = row.country_code?.trim();
+  const centroidCc = cc ? getCountryCentroid(cc) : null;
+  if (centroidCc) return { lat: centroidCc[0], lng: centroidCc[1] };
+
+  const inferredCode = inferCountryFromText(blob);
+  const inferredCentroid = inferredCode ? getCountryCentroid(inferredCode) : null;
+  if (inferredCentroid) return { lat: inferredCentroid[0], lng: inferredCentroid[1] };
+
+  const tfTitle = row.title ? resolveTitleCentroidFallback(row.title) : null;
+  if (tfTitle) return { lat: tfTitle.lat, lng: tfTitle.lon };
+  const tfSummary = row.summary ? resolveTitleCentroidFallback(row.summary) : null;
+  if (tfSummary) return { lat: tfSummary.lat, lng: tfSummary.lon };
+
+  return null;
+}

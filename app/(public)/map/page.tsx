@@ -63,6 +63,9 @@ export default function MapPage() {
           lat: e.lat,
           lon: e.lon,
           primary_location: e.primary_location,
+          title: e.title,
+          summary: e.summary,
+          country_code: e.country_code,
         });
         if (!coords) continue;
         mapped.push({

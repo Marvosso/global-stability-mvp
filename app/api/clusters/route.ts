@@ -5,7 +5,7 @@ import { event_category } from "@/app/api/_lib/enums";
 import { rateLimitExceeded } from "@/lib/apiError";
 import { createRequestLogger } from "@/lib/logger";
 import { checkEvents } from "@/lib/rateLimitEvents";
-import { coordsFromEventRow } from "@/lib/eventCoordinates";
+import { coordsForPublicListing } from "@/lib/geoResolve";
 
 /** Grid cell size in degrees (lat/lon) per resolution. */
 const RESOLUTION_DEGREES: Record<"coarse" | "medium" | "fine", number> = {
@@ -49,9 +49,12 @@ function jsonWithCors(body: unknown, init: ResponseInit = {}, request?: NextRequ
 
 type EventRow = {
   id: string;
+  title: string | null;
+  summary: string | null;
   primary_location: string | null;
   lat: number | null;
   lon: number | null;
+  country_code: string | null;
   confidence_score: number | null;
   confidence_level: string | null;
   category: string | null;
@@ -106,7 +109,7 @@ export async function GET(request: NextRequest) {
   try {
     let query = supabaseAdmin
       .from("events")
-      .select("id, primary_location, lat, lon, confidence_score, confidence_level, category")
+      .select("id, title, summary, primary_location, lat, lon, country_code, confidence_score, confidence_level, category")
       .eq("status", "Published")
       .gte("occurred_at", sinceIso);
 
@@ -142,7 +145,7 @@ export async function GET(request: NextRequest) {
     const buckets = new Map<string, BucketAcc>();
 
     for (const row of events) {
-      const coords = coordsFromEventRow(row);
+      const coords = coordsForPublicListing(row);
       if (!coords) continue;
 
       const latCell = Math.round(coords.lat / gridSize) * gridSize;

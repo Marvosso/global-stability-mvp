@@ -26,6 +26,9 @@ function normalizeEvents(data: unknown[]): SimpleEvent[] {
       lat: o.lat,
       lon: o.lon,
       primary_location: o.primary_location,
+      title: o.title,
+      summary: o.summary,
+      country_code: o.country_code,
     });
     if (!coords) continue;
     out.push({

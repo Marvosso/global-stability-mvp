@@ -6,7 +6,7 @@ import { rateLimitExceeded, paymentRequired } from "@/lib/apiError";
 import { createRequestLogger } from "@/lib/logger";
 import { checkEvents } from "@/lib/rateLimitEvents";
 import { getApiKeyContextOptional, decrementCreditsAndLogUsage } from "@/lib/apiKey";
-import { coordsFromEventRow } from "@/lib/eventCoordinates";
+import { coordsForPublicListing } from "@/lib/geoResolve";
 import { distanceKm } from "@/lib/eventCoordinates";
 import type { ApiKeyContextWithCredits } from "@/lib/apiKey";
 
@@ -164,7 +164,7 @@ export async function GET(request: NextRequest) {
       }
       list = (rows ?? []) as EventRow[];
       list = list.filter((row) => {
-        const coords = coordsFromEventRow(row);
+        const coords = coordsForPublicListing(row);
         if (!coords) return false;
         return distanceKm(lat, lon, coords.lat, coords.lng) <= radius_km!;
       });
@@ -246,7 +246,7 @@ export async function GET(request: NextRequest) {
     }
 
     const data = page.map((row) => {
-      const coords = coordsFromEventRow(row);
+      const coords = coordsForPublicListing(row);
       const sourceList = sourcesByEvent.get(row.id) ?? [];
       const sourcesUrls = sourceList.map((s) => s.url).filter((u): u is string => u != null && u !== "");
       return {
@@ -258,6 +258,7 @@ export async function GET(request: NextRequest) {
         confidence: row.confidence_level ?? "Medium",
         occurred_at: row.occurred_at ?? null,
         primary_location: row.primary_location ?? null,
+        country_code: row.country_code ?? null,
         lat: coords?.lat ?? null,
         lon: coords?.lng ?? null,
         sources: sourcesUrls,
